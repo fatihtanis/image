@@ -823,9 +823,7 @@ def main():
             write_timeout=120,  # Added write timeout
             pool_timeout=120,  # Added pool timeout
             connect_timeout=120,  # Added connect timeout
-            bootstrap_retries=-1,  # Infinite retries on startup
-            read_latency=5.0,  # Added read latency
-            close_loop=False  # Prevent loop closing issues
+            bootstrap_retries=-1  # Infinite retries on startup
         )
     except Exception as e:
         logger.error(f"Critical error in main function: {str(e)}", exc_info=True)
