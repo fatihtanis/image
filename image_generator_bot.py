@@ -66,6 +66,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def extract_video_id(url):
     """Extract video ID from various YouTube URL formats."""
     try:
+        # Clean the URL first
+        url = url.strip().lstrip('@')  # Remove @ symbol if present
+        
         # Parse the URL
         parsed_url = urllib.parse.urlparse(url)
         
