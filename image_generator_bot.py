@@ -521,15 +521,16 @@ async def generate_flux(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Run the Flux model with better error handling
             logger.info(f"Starting image generation with prompt: {user_text}")
             output = client.run(
-                "lucataco/sdxl-lcm:fbbd475b1084de80c47c35bfe4ae64b964294aa7e237e6537eed938cfd24903d",
+                "black-forest-labs/flux-1.1-pro-ultra:c621b53b1e3c8b67ab0aa93ed3d6f53c9c0c2a0e9b3f2a2e44c3c0c2f7b7e7c",
                 input={
                     "prompt": user_text,
-                    "num_inference_steps": 4,
-                    "guidance_scale": 1.5,
+                    "num_outputs": 1,
                     "width": 1024,
                     "height": 1024,
-                    "seed": 42,
-                    "num_outputs": 1
+                    "scheduler": "K_EULER_ANCESTRAL",
+                    "num_inference_steps": 30,
+                    "guidance_scale": 7.5,
+                    "seed": 42
                 }
             )
             logger.info("Image generation completed successfully")
