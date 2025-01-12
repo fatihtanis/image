@@ -22,10 +22,13 @@ logger = logging.getLogger(__name__)
 # Get the tokens from environment variables
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
+AUDD_API_TOKEN = os.getenv("AUDD_API_TOKEN")
 if not TELEGRAM_TOKEN:
     raise ValueError("No TELEGRAM_TOKEN environment variable found!")
 if not REPLICATE_API_TOKEN:
     raise ValueError("No REPLICATE_API_TOKEN environment variable found!")
+if not AUDD_API_TOKEN:
+    raise ValueError("No AUDD_API_TOKEN environment variable found!")
 
 # Rate limiting
 USER_RATES = defaultdict(list)
