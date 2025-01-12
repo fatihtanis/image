@@ -511,23 +511,30 @@ async def generate_flux(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         
         try:
-            # Set up the Replicate client
+            # Set up the Replicate client with error handling
+            if not REPLICATE_API_TOKEN:
+                raise ValueError("REPLICATE_API_TOKEN is not set")
+                
             client = replicate.Client(api_token=REPLICATE_API_TOKEN)
+            logger.info("Replicate client initialized successfully")
             
-            # Run the Flux model
+            # Run the Flux model with better error handling
+            logger.info(f"Starting image generation with prompt: {user_text}")
             output = client.run(
-                "fofr/flux-diffusion:c22ad47e103499c126cc2ba56ba897a3b8c8d8b66e8f450d9f4b012986bc1c32",
+                "stability-ai/sdxl:39ed52f2a78e934b3ba6e2a89f5b1c712de7dfea535525255b1aa35c5565e08b",
                 input={
                     "prompt": user_text,
-                    "num_inference_steps": 30,
+                    "negative_prompt": "",
+                    "num_inference_steps": 25,
                     "guidance_scale": 7.5,
                     "width": 1024,
                     "height": 1024,
                     "seed": None,
-                    "scheduler": "K_EULER_ANCESTRAL",
+                    "scheduler": "DPMSolverMultistep",
                     "num_outputs": 1
                 }
             )
+            logger.info("Image generation completed successfully")
             
             if output and len(output) > 0:
                 # Get the image URL from the output
