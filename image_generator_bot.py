@@ -231,35 +231,35 @@ async def youtube_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         
         try:
-            yt = YouTube(video_info['url'])
+            # Create y2mate style link
+            video_url = video_info['url']
+            title = video_info['title']
             
             if format_type == 'audio':
-                # Download as MP3
-                stream = yt.streams.filter(only_audio=True).first()
-                if not stream:
-                    raise Exception("Ses akışı bulunamadı")
-                
                 await query.message.reply_text(
-                    f"🎵 MP3 indirme linki hazır:\n{stream.url}\n\n"
-                    "Not: Link 6 saat geçerlidir."
+                    f"🎵 MP3 indirme linki:\n"
+                    f"https://www.y2mate.com/youtube-mp3/{video_id}\n\n"
+                    f"Şarkı: {title}\n"
+                    "1. Linke tıklayın\n"
+                    "2. 'Convert' butonuna tıklayın\n"
+                    "3. 'Download' butonuna tıklayın"
                 )
-                
             else:
-                # Download as MP4
                 resolution = format_type + 'p'
-                stream = yt.streams.filter(res=resolution, progressive=True).first()
-                if not stream:
-                    raise Exception(f"{resolution} çözünürlükte video bulunamadı")
-                
                 await query.message.reply_text(
-                    f"🎥 {resolution} MP4 indirme linki hazır:\n{stream.url}\n\n"
-                    "Not: Link 6 saat geçerlidir."
+                    f"🎥 {resolution} MP4 indirme linki:\n"
+                    f"https://www.y2mate.com/youtube/{video_id}\n\n"
+                    f"Video: {title}\n"
+                    "1. Linke tıklayın\n"
+                    "2. İstediğiniz kaliteyi seçin\n"
+                    "3. 'Convert' butonuna tıklayın\n"
+                    "4. 'Download' butonuna tıklayın"
                 )
             
         except Exception as e:
             logger.error(f"YouTube download error: {str(e)}")
             await query.message.reply_text(
-                f"❌ İndirme hazırlanırken hata oluştu: {str(e)}\n"
+                f"❌ İndirme hazırlanırken hata oluştu.\n"
                 "Lütfen başka bir format seçin veya daha sonra tekrar deneyin."
             )
         
