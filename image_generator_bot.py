@@ -27,7 +27,7 @@ MAX_PROMPT_LENGTH = 200
 
 # API URLs
 MUSIC_API_BASE = "https://jiosaavn-api-codyandersan.vercel.app/search/all"
-WHOIS_API_BASE = "https://rdap.verisign.com/com/v1/domain/"
+WHOIS_API_BASE = "https://rdap.org/domain/"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send a message when the command /start is issued."""
@@ -277,22 +277,19 @@ async def whois_lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         
         # Get the domain
-        full_domain = context.args[0].lower()
+        domain = context.args[0].lower()
         
         # Basic domain validation
-        if not '.' in full_domain or len(full_domain) < 4:
+        if not '.' in domain or len(domain) < 4:
             await update.message.reply_text(
                 "❌ Geçersiz domain formatı.\n"
                 "Örnek format: domain.com"
             )
             return
         
-        # Extract domain without extension for API
-        domain = full_domain.split('.')[0]
-        
         # Send a "searching" message
         processing_message = await update.message.reply_text(
-            f"🔍 {full_domain} domain'i sorgulanıyor..."
+            f"🔍 {domain} domain'i sorgulanıyor..."
         )
         
         try:
@@ -308,7 +305,7 @@ async def whois_lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     data = response.json()
                     
                     # Format the response
-                    message = f"🌐 Domain Bilgileri: {full_domain}\n\n"
+                    message = f"🌐 Domain Bilgileri: {domain}\n\n"
                     
                     # Domain Status
                     if data.get("status"):
@@ -319,7 +316,9 @@ async def whois_lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             "client update prohibited": "🔒 Güncelleme Korumalı",
                             "server delete prohibited": "🔒 Sunucu Silme Korumalı",
                             "server transfer prohibited": "🔒 Sunucu Transfer Korumalı",
-                            "server update prohibited": "🔒 Sunucu Güncelleme Korumalı"
+                            "server update prohibited": "🔒 Sunucu Güncelleme Korumalı",
+                            "associated": "✅ İlişkili",
+                            "reserved": "⚠️ Rezerve Edilmiş"
                         }
                         status_list = [statuses.get(s.lower(), s) for s in data["status"]]
                         message += f"📊 Durum: {', '.join(status_list)}\n"
@@ -331,7 +330,7 @@ async def whois_lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                 message += f"📅 Kayıt Tarihi: {event['eventDate']}\n"
                             elif event.get("eventAction") == "expiration":
                                 message += f"⌛ Bitiş Tarihi: {event['eventDate']}\n"
-                            elif event.get("eventAction") == "last update":
+                            elif event.get("eventAction") == "last changed":
                                 message += f"🔄 Son Güncelleme: {event['eventDate']}\n"
                     
                     # Name Servers
@@ -344,11 +343,21 @@ async def whois_lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     # Registrar info
                     if data.get("entities"):
                         for entity in data["entities"]:
-                            if entity.get("roles") and "registrar" in entity["roles"]:
-                                if entity.get("vcardArray") and len(entity["vcardArray"]) > 1:
-                                    for item in entity["vcardArray"][1]:
-                                        if item[0] == "fn":
-                                            message += f"\n🏢 Kayıt Şirketi: {item[3]}\n"
+                            if entity.get("roles"):
+                                if "registrar" in entity["roles"]:
+                                    if entity.get("vcardArray") and len(entity["vcardArray"]) > 1:
+                                        for item in entity["vcardArray"][1]:
+                                            if item[0] == "fn":
+                                                message += f"\n🏢 Kayıt Şirketi: {item[3]}\n"
+                                elif "registrant" in entity["roles"]:
+                                    if entity.get("vcardArray") and len(entity["vcardArray"]) > 1:
+                                        for item in entity["vcardArray"][1]:
+                                            if item[0] == "org":
+                                                message += f"👤 Domain Sahibi: {item[3]}\n"
+                    
+                    # Port43 (WHOIS server)
+                    if data.get("port43"):
+                        message += f"\n🔍 WHOIS Sunucusu: {data['port43']}\n"
                     
                     # Send the formatted message
                     await update.message.reply_text(message)
@@ -362,7 +371,7 @@ async def whois_lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
             elif response.status_code == 404:
                 await update.message.reply_text(
-                    f"❌ Domain bulunamadı: {full_domain}\n"
+                    f"❌ Domain bulunamadı: {domain}\n"
                     "Domain kayıtlı değil veya yanlış yazılmış olabilir."
                 )
             else:
