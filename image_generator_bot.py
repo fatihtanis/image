@@ -131,52 +131,35 @@ async def youtube_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         
         try:
-            # Try multiple times with different URL formats
-            errors = []
-            yt = None
+            # Get video info from YouTube
+            video_url = f"https://www.youtube.com/watch?v={video_id}"
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+            response = requests.get(video_url, headers=headers, timeout=10)
             
-            url_formats = [
-                f"https://youtube.com/watch?v={video_id}",
-                f"https://youtu.be/{video_id}",
-                f"https://www.youtube.com/watch?v={video_id}"
-            ]
-            
-            for attempt_url in url_formats:
-                try:
-                    yt = YouTube(attempt_url)
-                    yt.check_availability()
-                    # If we get here, the video info was successfully fetched
-                    break
-                except Exception as e:
-                    errors.append(str(e))
-                    continue
-            
-            if not yt:
+            if response.status_code != 200:
                 raise Exception("Video bilgilerine erişilemedi")
             
-            # Get video details with retries
-            max_retries = 3
-            for _ in range(max_retries):
-                try:
-                    title = yt.title
-                    author = yt.author
-                    length = yt.length
-                    views = yt.views
-                    thumbnail = yt.thumbnail_url
-                    # If we get here, all details were fetched successfully
-                    break
-                except Exception as e:
-                    if _ == max_retries - 1:  # Last attempt
-                        raise Exception("Video detayları alınamadı")
-                    continue
+            # Extract video title using regex
+            title_match = re.search(r'<title>(.*?) - YouTube</title>', response.text)
+            if not title_match:
+                raise Exception("Video başlığı alınamadı")
+            
+            title = title_match.group(1)
+            
+            # Extract channel name
+            channel_match = re.search(r'"author":"([^"]+)"', response.text)
+            author = channel_match.group(1) if channel_match else "Bilinmeyen Kanal"
+            
+            # Get video thumbnail
+            thumbnail = f"https://i.ytimg.com/vi/{video_id}/maxresdefault.jpg"
             
             # Cache video info
             youtube_cache[video_id] = {
-                'url': url,
+                'url': video_url,
                 'title': title,
                 'author': author,
-                'length': length,
-                'views': views,
                 'thumbnail': thumbnail
             }
             
@@ -193,20 +176,13 @@ async def youtube_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
-            # Format duration
-            duration_min = length // 60
-            duration_sec = length % 60
-            duration_str = f"{duration_min}:{duration_sec:02d}"
-            
             # Send video info with format selection
             await update.message.reply_photo(
                 photo=thumbnail,
                 caption=(
                     f"📹 Video Bilgileri:\n\n"
                     f"📝 Başlık: {title}\n"
-                    f"👤 Kanal: {author}\n"
-                    f"⏱️ Süre: {duration_str}\n"
-                    f"👁️ İzlenme: {views:,}\n\n"
+                    f"👤 Kanal: {author}\n\n"
                     f"Lütfen indirme formatını seçin:"
                 ),
                 reply_markup=reply_markup
@@ -217,8 +193,8 @@ async def youtube_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             error_message = str(e)
             if "Video unavailable" in error_message:
                 error_message = "Video kullanılamıyor veya özel"
-            elif "pytube" in error_message.lower():
-                error_message = "Video bilgileri alınamadı. Lütfen daha sonra tekrar deneyin"
+            elif "bilgilerine erişilemedi" in error_message:
+                error_message = "Video bilgilerine erişilemedi. Lütfen daha sonra tekrar deneyin"
             
             await update.message.reply_text(
                 f"❌ {error_message}.\n"
