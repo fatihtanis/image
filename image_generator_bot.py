@@ -526,7 +526,7 @@ async def generate_flux(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "prompt": user_text,
                     "negative_prompt": "",
                     "num_inference_steps": 1,
-                    "guidance_scale": 0.0,
+                    "guidance_scale": 1.0,
                     "width": 1024,
                     "height": 1024,
                     "seed": 42
