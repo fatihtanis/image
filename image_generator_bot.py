@@ -87,9 +87,14 @@ async def youtube_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         
-        # Get the URL
+        # Get the URL and clean it
         url = context.args[0]
-        video_id = extract_video_id(url)
+        # Remove timestamp and other parameters
+        if '?' in url:
+            base_url = url.split('?')[0]
+            video_id = extract_video_id(base_url)
+        else:
+            video_id = extract_video_id(url)
         
         if not video_id:
             await update.message.reply_text(
@@ -104,12 +109,14 @@ async def youtube_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         
         try:
+            # Reconstruct clean URL
+            clean_url = f"https://youtube.com/watch?v={video_id}"
             # Get video info
-            yt = YouTube(url)
+            yt = YouTube(clean_url)
             
             # Cache video info
             youtube_cache[video_id] = {
-                'url': url,
+                'url': clean_url,
                 'title': yt.title,
                 'author': yt.author,
                 'length': yt.length,
@@ -130,6 +137,11 @@ async def youtube_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
+            # Format duration
+            duration_min = yt.length // 60
+            duration_sec = yt.length % 60
+            duration_str = f"{duration_min}:{duration_sec:02d}"
+            
             # Send video info with format selection
             await update.message.reply_photo(
                 photo=yt.thumbnail_url,
@@ -137,7 +149,7 @@ async def youtube_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"📹 Video Bilgileri:\n\n"
                     f"📝 Başlık: {yt.title}\n"
                     f"👤 Kanal: {yt.author}\n"
-                    f"⏱️ Süre: {yt.length} saniye\n"
+                    f"⏱️ Süre: {duration_str}\n"
                     f"👁️ İzlenme: {yt.views:,}\n\n"
                     f"Lütfen indirme formatını seçin:"
                 ),
@@ -148,7 +160,7 @@ async def youtube_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"YouTube info error: {str(e)}")
             await update.message.reply_text(
                 "❌ Video bilgileri alınamadı.\n"
-                "Lütfen geçerli bir YouTube linki girdiğinizden emin olun."
+                "Lütfen geçerli bir YouTube linki girdiğinizden emin olun veya daha sonra tekrar deneyin."
             )
         
         finally:
