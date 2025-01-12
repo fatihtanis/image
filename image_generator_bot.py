@@ -6,6 +6,7 @@ import requests
 import urllib.parse
 from datetime import datetime, timedelta
 from collections import defaultdict
+import base64
 
 # Enable logging
 logging.basicConfig(
@@ -17,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 # Get the token from environment variable
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+AUDD_API_TOKEN = os.getenv("AUDD_API_TOKEN")  # AudD API token'ı
 if not TELEGRAM_TOKEN:
     raise ValueError("No TELEGRAM_TOKEN environment variable found!")
 
@@ -28,6 +30,7 @@ MAX_PROMPT_LENGTH = 200
 # API URLs
 MUSIC_API_BASE = "https://jiosaavn-api-codyandersan.vercel.app/search/all"
 WHOIS_API_BASE = "https://rdap.org/domain/"
+AUDD_API_URL = "https://api.audd.io/"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send a message when the command /start is issued."""
@@ -38,11 +41,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f'Komutlar:\n'
             f'1. Resim oluşturmak için: /generate [açıklama]\n'
             f'2. Şarkı aramak için: /song [şarkı adı]\n'
-            f'3. Domain sorgulamak için: /whois [domain.com]\n\n'
+            f'3. Domain sorgulamak için: /whois [domain.com]\n'
+            f'4. Müzik tanımak için: Ses kaydı veya müzik dosyası gönderin 🎵\n\n'
             f'Örnekler:\n'
             f'- /generate bir adam denizde yüzüyor 🎨\n'
             f'- /song Hadise Aşk Kaç Beden Giyer 🎵\n'
-            f'- /whois google.com 🔍\n\n'
+            f'- /whois google.com 🔍\n'
+            f'- Müzik tanıma için ses kaydı veya müzik dosyası gönderin 🎧\n\n'
             f'Limitler:\n'
             f'- Dakikada {MAX_REQUESTS_PER_MINUTE} resim oluşturabilirsiniz\n'
             f'- Maksimum {MAX_PROMPT_LENGTH} karakter uzunluğunda açıklama'
@@ -403,6 +408,93 @@ async def whois_lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"WHOIS command error: {str(e)}")
         await update.message.reply_text("Bir hata oluştu. Lütfen tekrar deneyin.")
 
+async def recognize_music(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Recognize music from voice message or audio file."""
+    try:
+        # Get the file
+        if update.message.voice:
+            file = await update.message.voice.get_file()
+        elif update.message.audio:
+            file = await update.message.audio.get_file()
+        else:
+            return
+        
+        # Send processing message
+        processing_message = await update.message.reply_text(
+            "🎵 Müzik tanınıyor, lütfen bekleyin..."
+        )
+        
+        try:
+            # Download the file
+            file_bytes = await file.download_as_bytearray()
+            
+            # Prepare the request
+            files = {
+                'file': ('audio.ogg', file_bytes),
+                'api_token': (None, AUDD_API_TOKEN),
+                'return': (None, 'spotify,apple_music,deezer')
+            }
+            
+            # Make request to AudD API
+            response = requests.post(AUDD_API_URL, files=files, timeout=30)
+            
+            if response.status_code == 200:
+                data = response.json()
+                
+                if data.get("status") == "success" and data.get("result"):
+                    result = data["result"]
+                    
+                    # Create response message
+                    message = "🎵 Müzik Bulundu!\n\n"
+                    message += f"🎤 Sanatçı: {result.get('artist', 'Bilinmiyor')}\n"
+                    message += f"🎼 Şarkı: {result.get('title', 'Bilinmiyor')}\n"
+                    message += f"💿 Albüm: {result.get('album', 'Bilinmiyor')}\n"
+                    message += f"📅 Yıl: {result.get('release_date', 'Bilinmiyor')}\n\n"
+                    
+                    # Add streaming links if available
+                    if result.get("spotify"):
+                        message += f"Spotify: {result['spotify']['external_urls']['spotify']}\n"
+                    if result.get("apple_music"):
+                        message += f"Apple Music: {result['apple_music']['url']}\n"
+                    if result.get("deezer"):
+                        message += f"Deezer: {result['deezer']['link']}\n"
+                    
+                    await update.message.reply_text(message)
+                    
+                else:
+                    await update.message.reply_text(
+                        "❌ Üzgünüm, bu müziği tanıyamadım.\n"
+                        "Lütfen daha net bir kayıt göndermeyi deneyin."
+                    )
+            else:
+                await update.message.reply_text(
+                    "❌ Müzik tanıma servisi şu anda çalışmıyor.\n"
+                    "Lütfen daha sonra tekrar deneyin."
+                )
+                
+        except requests.Timeout:
+            await update.message.reply_text(
+                "⏰ API yanıt vermedi, lütfen tekrar deneyin."
+            )
+        except requests.RequestException as e:
+            logger.error(f"Music recognition API error: {str(e)}")
+            await update.message.reply_text(
+                "🔌 Bağlantı hatası oluştu, lütfen tekrar deneyin."
+            )
+        except Exception as e:
+            logger.error(f"Music recognition error: {str(e)}")
+            await update.message.reply_text(
+                "⚠️ Beklenmeyen bir hata oluştu, lütfen tekrar deneyin."
+            )
+        
+        finally:
+            # Delete the processing message
+            await processing_message.delete()
+            
+    except Exception as e:
+        logger.error(f"Music recognition command error: {str(e)}")
+        await update.message.reply_text("Bir hata oluştu. Lütfen tekrar deneyin.")
+
 def main():
     """Start the bot."""
     try:
@@ -414,6 +506,7 @@ def main():
         application.add_handler(CommandHandler("generate", generate_image))
         application.add_handler(CommandHandler("song", search_song))
         application.add_handler(CommandHandler("whois", whois_lookup))
+        application.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, recognize_music))
 
         # Start the Bot
         logger.info("Bot started successfully!")
