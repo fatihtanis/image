@@ -521,12 +521,12 @@ async def generate_flux(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Run the Flux model with better error handling
             logger.info(f"Starting image generation with prompt: {user_text}")
             output = client.run(
-                "stability-ai/sdxl-turbo:c221b2b8ef527988fb59bf24a8b97c4561f1c671f73bd389f866bfb27c061316",
+                "stability-ai/stable-diffusion-xl-base-1.0:df7982ca6efc5390b82452216e0a342f9d1959d45ad192a56d54088153b327c3",
                 input={
                     "prompt": user_text,
                     "negative_prompt": "",
-                    "num_inference_steps": 1,
-                    "guidance_scale": 1.0,
+                    "num_inference_steps": 20,
+                    "guidance_scale": 7.5,
                     "width": 1024,
                     "height": 1024,
                     "seed": 42
