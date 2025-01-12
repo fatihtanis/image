@@ -516,7 +516,7 @@ async def generate_flux(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             # Run the Flux model
             output = client.run(
-                "black-forest-labs/flux-1.1-pro-ultra:c621b53b1e3c8b67ab0aa93ed3d6f53c9c0c2a0e9b3f2a2e44c3c0c2f7b7e7c",
+                "fofr/flux-diffusion:c22ad47e103499c126cc2ba56ba897a3b8c8d8b66e8f450d9f4b012986bc1c32",
                 input={
                     "prompt": user_text,
                     "num_inference_steps": 30,
