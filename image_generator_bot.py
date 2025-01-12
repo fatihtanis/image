@@ -27,7 +27,7 @@ MAX_PROMPT_LENGTH = 200
 
 # API URLs
 MUSIC_API_BASE = "https://jiosaavn-api-codyandersan.vercel.app/search/all"
-WHOIS_API_BASE = "https://in.godaddy.com/whois/api/raw"
+WHOIS_API_BASE = "https://whois.freeaiapi.xyz"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send a message when the command /start is issued."""
@@ -294,46 +294,50 @@ async def whois_lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         try:
             # Make request to the WHOIS API
-            params = {
-                'searchDomain': domain
-            }
-            response = requests.get(WHOIS_API_BASE, params=params, timeout=30)
+            api_url = f"{WHOIS_API_BASE}/?domain={domain}"
+            response = requests.get(api_url, timeout=30)
             
             if response.status_code == 200:
-                whois_data = response.text
-                
-                # Format the response
-                message = f"🌐 Domain Bilgileri: {domain}\n\n"
-                
-                # Extract and format important information
-                important_fields = {
-                    "Domain Name": "📝 Domain Adı",
-                    "Registry Domain ID": "🆔 Domain ID",
-                    "Registrar": "🏢 Kayıt Şirketi",
-                    "Creation Date": "📅 Oluşturma Tarihi",
-                    "Registry Expiry Date": "⌛ Bitiş Tarihi",
-                    "Updated Date": "🔄 Güncelleme Tarihi",
-                    "Name Server": "🖥️ Name Server",
-                    "Domain Status": "📊 Domain Durumu"
-                }
-                
-                # Parse the raw WHOIS data
-                for line in whois_data.split('\n'):
-                    if ':' in line:
-                        key, value = line.split(':', 1)
-                        key = key.strip()
-                        value = value.strip()
-                        
-                        if key in important_fields:
-                            message += f"{important_fields[key]}: {value}\n"
-                
-                # Send the formatted message
-                await update.message.reply_text(message)
+                try:
+                    data = response.json()
+                    
+                    # Format the response
+                    message = f"🌐 Domain Bilgileri: {domain}\n\n"
+                    
+                    if data.get("domain_name"):
+                        message += f"📝 Domain Adı: {data['domain_name']}\n"
+                    if data.get("registrar"):
+                        message += f"🏢 Kayıt Şirketi: {data['registrar']}\n"
+                    if data.get("creation_date"):
+                        message += f"📅 Oluşturma Tarihi: {data['creation_date']}\n"
+                    if data.get("expiration_date"):
+                        message += f"⌛ Bitiş Tarihi: {data['expiration_date']}\n"
+                    if data.get("updated_date"):
+                        message += f"🔄 Güncelleme Tarihi: {data['updated_date']}\n"
+                    if data.get("name_servers"):
+                        servers = ', '.join(data['name_servers'][:3])  # İlk 3 name server
+                        message += f"🖥️ Name Serverlar: {servers}\n"
+                    if data.get("status"):
+                        message += f"📊 Domain Durumu: {data['status']}\n"
+                    
+                    # Add availability info
+                    if data.get("available") is not None:
+                        status = "✅ Müsait" if data["available"] else "❌ Alınmış"
+                        message += f"\n🎯 Durum: {status}"
+                    
+                    # Send the formatted message
+                    await update.message.reply_text(message)
+                    
+                except ValueError:
+                    await update.message.reply_text(
+                        "❌ API yanıtı geçersiz format içeriyor.\n"
+                        "Lütfen tekrar deneyin."
+                    )
                 
             else:
                 await update.message.reply_text(
-                    f"❌ Domain bilgileri alınamadı: HTTP {response.status_code}\n"
-                    "Lütfen tekrar deneyin."
+                    f"❌ Domain bilgileri alınamadı.\n"
+                    "Lütfen geçerli bir domain adı girin."
                 )
                 
         except requests.Timeout:
