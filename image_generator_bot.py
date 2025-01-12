@@ -27,6 +27,7 @@ MAX_PROMPT_LENGTH = 200
 
 # API URLs
 MUSIC_API_BASE = "https://jiosaavn-api-codyandersan.vercel.app/search/all"
+WHOIS_API_BASE = "https://in.godaddy.com/whois/api/raw"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send a message when the command /start is issued."""
@@ -36,10 +37,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f'Merhaba {user_name}! 👋\n'
             f'Komutlar:\n'
             f'1. Resim oluşturmak için: /generate [açıklama]\n'
-            f'2. Şarkı aramak için: /song [şarkı adı]\n\n'
+            f'2. Şarkı aramak için: /song [şarkı adı]\n'
+            f'3. Domain sorgulamak için: /whois [domain.com]\n\n'
             f'Örnekler:\n'
             f'- /generate bir adam denizde yüzüyor 🎨\n'
-            f'- /song Hadise Aşk Kaç Beden Giyer 🎵\n\n'
+            f'- /song Hadise Aşk Kaç Beden Giyer 🎵\n'
+            f'- /whois google.com 🔍\n\n'
             f'Limitler:\n'
             f'- Dakikada {MAX_REQUESTS_PER_MINUTE} resim oluşturabilirsiniz\n'
             f'- Maksimum {MAX_PROMPT_LENGTH} karakter uzunluğunda açıklama'
@@ -262,6 +265,100 @@ async def generate_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Generate command error: {str(e)}")
         await update.message.reply_text("Bir hata oluştu. Lütfen tekrar deneyin.")
 
+async def whois_lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Look up WHOIS information for a domain."""
+    try:
+        # Check if user provided a domain
+        if not context.args:
+            await update.message.reply_text(
+                "Lütfen bir domain adı girin.\n"
+                "Örnek: /whois google.com"
+            )
+            return
+        
+        # Get the domain
+        domain = context.args[0].lower()
+        
+        # Basic domain validation
+        if not '.' in domain or len(domain) < 4:
+            await update.message.reply_text(
+                "❌ Geçersiz domain formatı.\n"
+                "Örnek format: domain.com"
+            )
+            return
+        
+        # Send a "searching" message
+        processing_message = await update.message.reply_text(
+            f"🔍 {domain} domain'i sorgulanıyor..."
+        )
+        
+        try:
+            # Make request to the WHOIS API
+            params = {
+                'searchDomain': domain
+            }
+            response = requests.get(WHOIS_API_BASE, params=params, timeout=30)
+            
+            if response.status_code == 200:
+                whois_data = response.text
+                
+                # Format the response
+                message = f"🌐 Domain Bilgileri: {domain}\n\n"
+                
+                # Extract and format important information
+                important_fields = {
+                    "Domain Name": "📝 Domain Adı",
+                    "Registry Domain ID": "🆔 Domain ID",
+                    "Registrar": "🏢 Kayıt Şirketi",
+                    "Creation Date": "📅 Oluşturma Tarihi",
+                    "Registry Expiry Date": "⌛ Bitiş Tarihi",
+                    "Updated Date": "🔄 Güncelleme Tarihi",
+                    "Name Server": "🖥️ Name Server",
+                    "Domain Status": "📊 Domain Durumu"
+                }
+                
+                # Parse the raw WHOIS data
+                for line in whois_data.split('\n'):
+                    if ':' in line:
+                        key, value = line.split(':', 1)
+                        key = key.strip()
+                        value = value.strip()
+                        
+                        if key in important_fields:
+                            message += f"{important_fields[key]}: {value}\n"
+                
+                # Send the formatted message
+                await update.message.reply_text(message)
+                
+            else:
+                await update.message.reply_text(
+                    f"❌ Domain bilgileri alınamadı: HTTP {response.status_code}\n"
+                    "Lütfen tekrar deneyin."
+                )
+                
+        except requests.Timeout:
+            await update.message.reply_text(
+                "⏰ API yanıt vermedi, lütfen tekrar deneyin."
+            )
+        except requests.RequestException as e:
+            logger.error(f"WHOIS API request error: {str(e)}")
+            await update.message.reply_text(
+                "🔌 Bağlantı hatası oluştu, lütfen tekrar deneyin."
+            )
+        except Exception as e:
+            logger.error(f"WHOIS lookup error: {str(e)}")
+            await update.message.reply_text(
+                "⚠️ Beklenmeyen bir hata oluştu, lütfen tekrar deneyin."
+            )
+        
+        finally:
+            # Delete the processing message
+            await processing_message.delete()
+            
+    except Exception as e:
+        logger.error(f"WHOIS command error: {str(e)}")
+        await update.message.reply_text("Bir hata oluştu. Lütfen tekrar deneyin.")
+
 def main():
     """Start the bot."""
     try:
@@ -272,6 +369,7 @@ def main():
         application.add_handler(CommandHandler("start", start))
         application.add_handler(CommandHandler("generate", generate_image))
         application.add_handler(CommandHandler("song", search_song))
+        application.add_handler(CommandHandler("whois", whois_lookup))
 
         # Start the Bot
         logger.info("Bot started successfully!")
