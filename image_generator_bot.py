@@ -106,19 +106,22 @@ async def youtube_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         
-        # Get the URL and clean it
-        url = context.args[0]
-        # Remove timestamp and other parameters
-        if '?' in url:
-            base_url = url.split('?')[0]
-            video_id = extract_video_id(base_url)
-        else:
-            video_id = extract_video_id(url)
+        # Get the URL
+        url = context.args[0].strip()
+        logger.info(f"Processing YouTube URL: {url}")  # Debug log
+        
+        # Extract video ID
+        video_id = extract_video_id(url)
+        logger.info(f"Extracted video ID: {video_id}")  # Debug log
         
         if not video_id:
             await update.message.reply_text(
                 "❌ Geçersiz YouTube linki.\n"
-                "Lütfen geçerli bir YouTube linki girin."
+                f"Girilen link: {url}\n"
+                "Desteklenen formatlar:\n"
+                "- https://youtube.com/watch?v=VIDEO_ID\n"
+                "- https://youtu.be/VIDEO_ID\n"
+                "- https://youtube.com/shorts/VIDEO_ID"
             )
             return
         
@@ -128,14 +131,12 @@ async def youtube_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         
         try:
-            # Reconstruct clean URL
-            clean_url = f"https://youtube.com/watch?v={video_id}"
-            # Get video info
-            yt = YouTube(clean_url)
+            # Use the original URL for fetching video info
+            yt = YouTube(url)
             
             # Cache video info
             youtube_cache[video_id] = {
-                'url': clean_url,
+                'url': url,
                 'title': yt.title,
                 'author': yt.author,
                 'length': yt.length,
@@ -179,6 +180,7 @@ async def youtube_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"YouTube info error: {str(e)}")
             await update.message.reply_text(
                 "❌ Video bilgileri alınamadı.\n"
+                f"Hata: {str(e)}\n"
                 "Lütfen geçerli bir YouTube linki girdiğinizden emin olun veya daha sonra tekrar deneyin."
             )
         
