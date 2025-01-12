@@ -521,15 +521,15 @@ async def generate_flux(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Run the Flux model with better error handling
             logger.info(f"Starting image generation with prompt: {user_text}")
             output = client.run(
-                "playgroundai/playground-v2-1024px-aesthetic:42fe626e41cc811eaf02c94b892774839268ce1994ea778eba97103fe1ef3b80",
+                "lucataco/sdxl-lcm:fbbd475b1084de80c47c35bfe4ae64b964294aa7e237e6537eed938cfd24903d",
                 input={
-                    "prompt": user_text + ", high quality, photorealistic, 8k, ultra detailed",
+                    "prompt": user_text,
+                    "num_inference_steps": 4,
+                    "guidance_scale": 1.5,
                     "width": 1024,
                     "height": 1024,
-                    "num_outputs": 1,
-                    "num_inference_steps": 25,
-                    "guidance_scale": 7,
-                    "scheduler": "DPMSolverMultistep"
+                    "seed": 42,
+                    "num_outputs": 1
                 }
             )
             logger.info("Image generation completed successfully")
