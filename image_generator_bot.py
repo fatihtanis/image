@@ -27,7 +27,7 @@ MAX_PROMPT_LENGTH = 200
 
 # API URLs
 MUSIC_API_BASE = "https://jiosaavn-api-codyandersan.vercel.app/search/all"
-WHOIS_API_BASE = "https://whois.freeaiapi.xyz"
+WHOIS_API_BASE = "https://rdap.verisign.com/com/v1/domain/"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send a message when the command /start is issued."""
@@ -277,66 +277,97 @@ async def whois_lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         
         # Get the domain
-        domain = context.args[0].lower()
+        full_domain = context.args[0].lower()
         
         # Basic domain validation
-        if not '.' in domain or len(domain) < 4:
+        if not '.' in full_domain or len(full_domain) < 4:
             await update.message.reply_text(
                 "❌ Geçersiz domain formatı.\n"
                 "Örnek format: domain.com"
             )
             return
         
+        # Extract domain without extension for API
+        domain = full_domain.split('.')[0]
+        
         # Send a "searching" message
         processing_message = await update.message.reply_text(
-            f"🔍 {domain} domain'i sorgulanıyor..."
+            f"🔍 {full_domain} domain'i sorgulanıyor..."
         )
         
         try:
-            # Make request to the WHOIS API
-            api_url = f"{WHOIS_API_BASE}/?domain={domain}"
-            response = requests.get(api_url, timeout=30)
+            # Make request to the RDAP API
+            api_url = f"{WHOIS_API_BASE}{domain}"
+            headers = {
+                'Accept': 'application/rdap+json'
+            }
+            response = requests.get(api_url, headers=headers, timeout=30)
             
             if response.status_code == 200:
                 try:
                     data = response.json()
                     
                     # Format the response
-                    message = f"🌐 Domain Bilgileri: {domain}\n\n"
+                    message = f"🌐 Domain Bilgileri: {full_domain}\n\n"
                     
-                    if data.get("domain_name"):
-                        message += f"📝 Domain Adı: {data['domain_name']}\n"
-                    if data.get("registrar"):
-                        message += f"🏢 Kayıt Şirketi: {data['registrar']}\n"
-                    if data.get("creation_date"):
-                        message += f"📅 Oluşturma Tarihi: {data['creation_date']}\n"
-                    if data.get("expiration_date"):
-                        message += f"⌛ Bitiş Tarihi: {data['expiration_date']}\n"
-                    if data.get("updated_date"):
-                        message += f"🔄 Güncelleme Tarihi: {data['updated_date']}\n"
-                    if data.get("name_servers"):
-                        servers = ', '.join(data['name_servers'][:3])  # İlk 3 name server
-                        message += f"🖥️ Name Serverlar: {servers}\n"
+                    # Domain Status
                     if data.get("status"):
-                        message += f"📊 Domain Durumu: {data['status']}\n"
+                        statuses = {
+                            "active": "✅ Aktif",
+                            "client delete prohibited": "🔒 Silme Korumalı",
+                            "client transfer prohibited": "🔒 Transfer Korumalı",
+                            "client update prohibited": "🔒 Güncelleme Korumalı",
+                            "server delete prohibited": "🔒 Sunucu Silme Korumalı",
+                            "server transfer prohibited": "🔒 Sunucu Transfer Korumalı",
+                            "server update prohibited": "🔒 Sunucu Güncelleme Korumalı"
+                        }
+                        status_list = [statuses.get(s.lower(), s) for s in data["status"]]
+                        message += f"📊 Durum: {', '.join(status_list)}\n"
                     
-                    # Add availability info
-                    if data.get("available") is not None:
-                        status = "✅ Müsait" if data["available"] else "❌ Alınmış"
-                        message += f"\n🎯 Durum: {status}"
+                    # Events (dates)
+                    if data.get("events"):
+                        for event in data["events"]:
+                            if event.get("eventAction") == "registration":
+                                message += f"📅 Kayıt Tarihi: {event['eventDate']}\n"
+                            elif event.get("eventAction") == "expiration":
+                                message += f"⌛ Bitiş Tarihi: {event['eventDate']}\n"
+                            elif event.get("eventAction") == "last update":
+                                message += f"🔄 Son Güncelleme: {event['eventDate']}\n"
+                    
+                    # Name Servers
+                    if data.get("nameservers"):
+                        ns_list = [ns.get("ldhName", "") for ns in data["nameservers"]]
+                        message += f"\n🖥️ Name Serverlar:\n"
+                        for ns in ns_list[:3]:  # İlk 3 name server
+                            message += f"  • {ns}\n"
+                    
+                    # Registrar info
+                    if data.get("entities"):
+                        for entity in data["entities"]:
+                            if entity.get("roles") and "registrar" in entity["roles"]:
+                                if entity.get("vcardArray") and len(entity["vcardArray"]) > 1:
+                                    for item in entity["vcardArray"][1]:
+                                        if item[0] == "fn":
+                                            message += f"\n🏢 Kayıt Şirketi: {item[3]}\n"
                     
                     # Send the formatted message
                     await update.message.reply_text(message)
                     
-                except ValueError:
+                except ValueError as ve:
+                    logger.error(f"JSON parsing error: {str(ve)}")
                     await update.message.reply_text(
                         "❌ API yanıtı geçersiz format içeriyor.\n"
                         "Lütfen tekrar deneyin."
                     )
                 
+            elif response.status_code == 404:
+                await update.message.reply_text(
+                    f"❌ Domain bulunamadı: {full_domain}\n"
+                    "Domain kayıtlı değil veya yanlış yazılmış olabilir."
+                )
             else:
                 await update.message.reply_text(
-                    f"❌ Domain bilgileri alınamadı.\n"
+                    f"❌ Domain bilgileri alınamadı (HTTP {response.status_code}).\n"
                     "Lütfen geçerli bir domain adı girin."
                 )
                 
