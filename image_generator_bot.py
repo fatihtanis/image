@@ -131,41 +131,48 @@ async def youtube_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         
         try:
-            # Use the clean video URL
-            clean_url = f"https://youtube.com/watch?v={video_id}"
-            yt = YouTube(clean_url)
+            # Try multiple times with different URL formats
+            errors = []
+            yt = None
             
-            # Add event handlers for PyTube
-            def on_progress(stream, chunk, bytes_remaining):
-                pass  # We don't need progress updates for info fetching
-                
-            def on_complete(stream, file_path):
-                pass  # We don't need completion handling for info fetching
-                
-            yt.register_on_progress_callback(on_progress)
-            yt.register_on_complete_callback(on_complete)
+            url_formats = [
+                f"https://youtube.com/watch?v={video_id}",
+                f"https://youtu.be/{video_id}",
+                f"https://www.youtube.com/watch?v={video_id}"
+            ]
             
-            # Force PyTube to fetch video info
-            try:
-                yt.check_availability()
-            except Exception as e:
-                logger.error(f"Video availability check failed: {str(e)}")
-                raise Exception("Video kullanılamıyor veya özel olabilir")
+            for attempt_url in url_formats:
+                try:
+                    yt = YouTube(attempt_url)
+                    yt.check_availability()
+                    # If we get here, the video info was successfully fetched
+                    break
+                except Exception as e:
+                    errors.append(str(e))
+                    continue
             
-            # Get video details with error handling
-            try:
-                title = yt.title
-                author = yt.author
-                length = yt.length
-                views = yt.views
-                thumbnail = yt.thumbnail_url
-            except Exception as e:
-                logger.error(f"Failed to get video details: {str(e)}")
-                raise Exception("Video detayları alınamadı")
+            if not yt:
+                raise Exception("Video bilgilerine erişilemedi")
+            
+            # Get video details with retries
+            max_retries = 3
+            for _ in range(max_retries):
+                try:
+                    title = yt.title
+                    author = yt.author
+                    length = yt.length
+                    views = yt.views
+                    thumbnail = yt.thumbnail_url
+                    # If we get here, all details were fetched successfully
+                    break
+                except Exception as e:
+                    if _ == max_retries - 1:  # Last attempt
+                        raise Exception("Video detayları alınamadı")
+                    continue
             
             # Cache video info
             youtube_cache[video_id] = {
-                'url': clean_url,
+                'url': url,
                 'title': title,
                 'author': author,
                 'length': length,
