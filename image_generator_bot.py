@@ -131,17 +131,46 @@ async def youtube_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         
         try:
-            # Use the original URL for fetching video info
-            yt = YouTube(url)
+            # Use the clean video URL
+            clean_url = f"https://youtube.com/watch?v={video_id}"
+            yt = YouTube(clean_url)
+            
+            # Add event handlers for PyTube
+            def on_progress(stream, chunk, bytes_remaining):
+                pass  # We don't need progress updates for info fetching
+                
+            def on_complete(stream, file_path):
+                pass  # We don't need completion handling for info fetching
+                
+            yt.register_on_progress_callback(on_progress)
+            yt.register_on_complete_callback(on_complete)
+            
+            # Force PyTube to fetch video info
+            try:
+                yt.check_availability()
+            except Exception as e:
+                logger.error(f"Video availability check failed: {str(e)}")
+                raise Exception("Video kullanılamıyor veya özel olabilir")
+            
+            # Get video details with error handling
+            try:
+                title = yt.title
+                author = yt.author
+                length = yt.length
+                views = yt.views
+                thumbnail = yt.thumbnail_url
+            except Exception as e:
+                logger.error(f"Failed to get video details: {str(e)}")
+                raise Exception("Video detayları alınamadı")
             
             # Cache video info
             youtube_cache[video_id] = {
-                'url': url,
-                'title': yt.title,
-                'author': yt.author,
-                'length': yt.length,
-                'views': yt.views,
-                'thumbnail': yt.thumbnail_url
+                'url': clean_url,
+                'title': title,
+                'author': author,
+                'length': length,
+                'views': views,
+                'thumbnail': thumbnail
             }
             
             # Create format selection buttons
@@ -158,19 +187,19 @@ async def youtube_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             # Format duration
-            duration_min = yt.length // 60
-            duration_sec = yt.length % 60
+            duration_min = length // 60
+            duration_sec = length % 60
             duration_str = f"{duration_min}:{duration_sec:02d}"
             
             # Send video info with format selection
             await update.message.reply_photo(
-                photo=yt.thumbnail_url,
+                photo=thumbnail,
                 caption=(
                     f"📹 Video Bilgileri:\n\n"
-                    f"📝 Başlık: {yt.title}\n"
-                    f"👤 Kanal: {yt.author}\n"
+                    f"📝 Başlık: {title}\n"
+                    f"👤 Kanal: {author}\n"
                     f"⏱️ Süre: {duration_str}\n"
-                    f"👁️ İzlenme: {yt.views:,}\n\n"
+                    f"👁️ İzlenme: {views:,}\n\n"
                     f"Lütfen indirme formatını seçin:"
                 ),
                 reply_markup=reply_markup
@@ -178,10 +207,15 @@ async def youtube_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
         except Exception as e:
             logger.error(f"YouTube info error: {str(e)}")
+            error_message = str(e)
+            if "Video unavailable" in error_message:
+                error_message = "Video kullanılamıyor veya özel"
+            elif "pytube" in error_message.lower():
+                error_message = "Video bilgileri alınamadı. Lütfen daha sonra tekrar deneyin"
+            
             await update.message.reply_text(
-                "❌ Video bilgileri alınamadı.\n"
-                f"Hata: {str(e)}\n"
-                "Lütfen geçerli bir YouTube linki girdiğinizden emin olun veya daha sonra tekrar deneyin."
+                f"❌ {error_message}.\n"
+                "Lütfen başka bir video deneyin veya daha sonra tekrar deneyin."
             )
         
         finally:
