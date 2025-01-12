@@ -225,46 +225,30 @@ async def youtube_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         
-        # Send processing message
-        processing_message = await query.message.reply_text(
-            "📥 İndirme hazırlanıyor..."
+        # Get video title
+        title = video_info['title']
+        
+        # Create y2mate link based on format
+        if format_type == 'audio':
+            y2mate_url = f"https://www.y2mate.com/tr/youtube-mp3/{video_id}"
+            format_text = "MP3"
+        else:
+            y2mate_url = f"https://www.y2mate.com/tr/youtube/{video_id}"
+            format_text = f"{format_type}p MP4"
+        
+        # Create message with instructions
+        message = (
+            f"📥 {format_text} İndirme Linki:\n\n"
+            f"🔗 {y2mate_url}\n\n"
+            f"📝 Video: {title}\n\n"
+            "📱 Nasıl İndirilir:\n"
+            "1. Yukarıdaki linke tıklayın\n"
+            "2. Açılan sayfada 'Convert' butonuna tıklayın\n"
+            "3. 'Download' butonuna tıklayarak indirin\n\n"
+            "⚠️ Not: Reklam engelleyici kullanmanız önerilir"
         )
         
-        try:
-            # Create y2mate style link
-            video_url = video_info['url']
-            title = video_info['title']
-            
-            if format_type == 'audio':
-                await query.message.reply_text(
-                    f"🎵 MP3 indirme linki:\n"
-                    f"https://www.y2mate.com/youtube-mp3/{video_id}\n\n"
-                    f"Şarkı: {title}\n"
-                    "1. Linke tıklayın\n"
-                    "2. 'Convert' butonuna tıklayın\n"
-                    "3. 'Download' butonuna tıklayın"
-                )
-            else:
-                resolution = format_type + 'p'
-                await query.message.reply_text(
-                    f"🎥 {resolution} MP4 indirme linki:\n"
-                    f"https://www.y2mate.com/youtube/{video_id}\n\n"
-                    f"Video: {title}\n"
-                    "1. Linke tıklayın\n"
-                    "2. İstediğiniz kaliteyi seçin\n"
-                    "3. 'Convert' butonuna tıklayın\n"
-                    "4. 'Download' butonuna tıklayın"
-                )
-            
-        except Exception as e:
-            logger.error(f"YouTube download error: {str(e)}")
-            await query.message.reply_text(
-                f"❌ İndirme hazırlanırken hata oluştu.\n"
-                "Lütfen başka bir format seçin veya daha sonra tekrar deneyin."
-            )
-        
-        finally:
-            await processing_message.delete()
+        await query.message.reply_text(message)
             
     except Exception as e:
         logger.error(f"YouTube button error: {str(e)}")
