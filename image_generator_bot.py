@@ -814,11 +814,18 @@ def main():
         logger.info("- Music recognition enabled: Yes")
         logger.info("Bot started successfully!")
 
-        # Start the Bot with error handling
+        # Start the Bot with error handling and increased timeouts
         application.run_polling(
             allowed_updates=Update.ALL_TYPES,
             drop_pending_updates=True,
-            timeout=60
+            timeout=120,  # Increased timeout
+            read_timeout=120,  # Added read timeout
+            write_timeout=120,  # Added write timeout
+            pool_timeout=120,  # Added pool timeout
+            connect_timeout=120,  # Added connect timeout
+            bootstrap_retries=-1,  # Infinite retries on startup
+            read_latency=5.0,  # Added read latency
+            close_loop=False  # Prevent loop closing issues
         )
     except Exception as e:
         logger.error(f"Critical error in main function: {str(e)}", exc_info=True)
