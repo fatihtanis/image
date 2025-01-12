@@ -9,6 +9,7 @@ from collections import defaultdict
 import base64
 from pytube import YouTube
 import re
+import replicate
 
 # Enable logging
 logging.basicConfig(
@@ -18,11 +19,13 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-# Get the token from environment variable
+# Get the tokens from environment variables
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-AUDD_API_TOKEN = os.getenv("AUDD_API_TOKEN")
+REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
 if not TELEGRAM_TOKEN:
     raise ValueError("No TELEGRAM_TOKEN environment variable found!")
+if not REPLICATE_API_TOKEN:
+    raise ValueError("No REPLICATE_API_TOKEN environment variable found!")
 
 # Rate limiting
 USER_RATES = defaultdict(list)
@@ -44,13 +47,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             f'Merhaba {user_name}! 👋\n'
             f'Komutlar:\n'
-            f'1. Resim oluşturmak için: /generate [açıklama]\n'
-            f'2. Şarkı aramak için: /song [şarkı adı]\n'
-            f'3. Domain sorgulamak için: /whois [domain.com]\n'
-            f'4. Müzik tanımak için: Ses kaydı veya müzik dosyası gönderin 🎵\n'
-            f'5. YouTube indirmek için: /yt [video linki]\n\n'
+            f'1. DALL-E 3 ile resim: /dalle [açıklama]\n'
+            f'2. Flux ile resim: /flux [açıklama]\n'
+            f'3. Şarkı aramak için: /song [şarkı adı]\n'
+            f'4. Domain sorgulamak için: /whois [domain.com]\n'
+            f'5. Müzik tanımak için: Ses kaydı veya müzik dosyası gönderin 🎵\n'
+            f'6. YouTube indirmek için: /yt [video linki]\n\n'
             f'Örnekler:\n'
-            f'- /generate bir adam denizde yüzüyor 🎨\n'
+            f'- /dalle bir adam denizde yüzüyor 🎨\n'
+            f'- /flux bir adam denizde yüzüyor 🎨\n'
             f'- /song Hadise Aşk Kaç Beden Giyer 🎵\n'
             f'- /whois google.com 🔍\n'
             f'- Müzik tanıma için ses kaydı veya müzik dosyası gönderin 🎧\n'
@@ -374,14 +379,14 @@ def check_rate_limit(user_id: int) -> bool:
     user_requests.append(now)
     return True
 
-async def generate_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Generate an image based on the user's text input."""
+async def generate_dalle(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Generate an image using DALL-E 3."""
     try:
         # Check if user provided text
         if not context.args:
             await update.message.reply_text(
                 "Lütfen bir açıklama girin.\n"
-                "Örnek: /generate bir adam denizde yüzüyor"
+                "Örnek: /dalle bir adam denizde yüzüyor"
             )
             return
         
@@ -396,7 +401,7 @@ async def generate_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         
-        # Get the text after the /generate command
+        # Get the text after the command
         user_text = ' '.join(context.args)
         
         # Check prompt length
@@ -408,16 +413,16 @@ async def generate_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Send a "processing" message
         processing_message = await update.message.reply_text(
-            "Resim oluşturuluyor, lütfen bekleyin... 🎨"
+            "🎨 DALL-E 3 ile resim oluşturuluyor..."
         )
         
         try:
             # Encode the user's text for the URL
             encoded_text = urllib.parse.quote(user_text)
             
-            # Make request to the image generation API
+            # Make request to the DALL-E 3 API
             api_url = f"https://prompt.glitchy.workers.dev/gen?key={encoded_text}&t=0.2&f=dalle3&demo=true&count=1"
-            response = requests.get(api_url, timeout=30)  # 30 second timeout
+            response = requests.get(api_url, timeout=30)
             
             if response.status_code == 200:
                 data = response.json()
@@ -428,44 +433,116 @@ async def generate_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     # Send the image
                     await update.message.reply_photo(
                         photo=image_url,
-                        caption=f"İşte senin için oluşturduğum resim! 🎨\nPrompt: {user_text}"
+                        caption=(
+                            f"🎨 İşte DALL-E 3 ile oluşturduğum resim!\n\n"
+                            f"📝 Prompt: {user_text}"
+                        )
                     )
                 else:
-                    error_msg = "API yanıtı geçersiz"
-                    logger.error(f"API response error: {data}")
-                    await update.message.reply_text(
-                        f"Üzgünüm, resim oluşturulamadı: {error_msg}\n"
-                        "Lütfen tekrar deneyin."
-                    )
+                    raise Exception("API yanıtı geçersiz")
             else:
-                error_msg = f"HTTP {response.status_code}"
-                logger.error(f"API status code error: {response.status_code}")
-                await update.message.reply_text(
-                    f"API'ye erişirken bir hata oluştu: {error_msg}\n"
-                    "Lütfen tekrar deneyin."
-                )
+                raise Exception(f"HTTP {response.status_code}")
                 
-        except requests.Timeout:
-            await update.message.reply_text(
-                "API yanıt vermedi, lütfen tekrar deneyin."
-            )
-        except requests.RequestException as e:
-            logger.error(f"Request error: {str(e)}")
-            await update.message.reply_text(
-                "Bağlantı hatası oluştu, lütfen tekrar deneyin."
-            )
         except Exception as e:
-            logger.error(f"Generate image error: {str(e)}")
+            logger.error(f"DALL-E generation error: {str(e)}")
             await update.message.reply_text(
-                "Beklenmeyen bir hata oluştu, lütfen tekrar deneyin."
+                "❌ Resim oluşturulurken bir hata oluştu.\n"
+                "Lütfen daha sonra tekrar deneyin."
             )
         
         finally:
-            # Delete the processing message
             await processing_message.delete()
             
     except Exception as e:
-        logger.error(f"Generate command error: {str(e)}")
+        logger.error(f"DALL-E command error: {str(e)}")
+        await update.message.reply_text("Bir hata oluştu. Lütfen tekrar deneyin.")
+
+async def generate_flux(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Generate an image using Flux model."""
+    try:
+        # Check if user provided text
+        if not context.args:
+            await update.message.reply_text(
+                "Lütfen bir açıklama girin.\n"
+                "Örnek: /flux bir adam denizde yüzüyor"
+            )
+            return
+        
+        # Get user ID for rate limiting
+        user_id = update.effective_user.id
+        
+        # Check rate limit
+        if not check_rate_limit(user_id):
+            remaining_time = 60 - (datetime.now() - USER_RATES[user_id][0]).seconds
+            await update.message.reply_text(
+                f"Çok fazla istek gönderdiniz. Lütfen {remaining_time} saniye bekleyin."
+            )
+            return
+        
+        # Get the text after the command
+        user_text = ' '.join(context.args)
+        
+        # Check prompt length
+        if len(user_text) > MAX_PROMPT_LENGTH:
+            await update.message.reply_text(
+                f"Açıklama çok uzun! Maksimum {MAX_PROMPT_LENGTH} karakter girebilirsiniz."
+            )
+            return
+        
+        # Send a "processing" message
+        processing_message = await update.message.reply_text(
+            "🎨 Flux ile resim oluşturuluyor...\n"
+            "Bu işlem 1-2 dakika sürebilir, lütfen bekleyin."
+        )
+        
+        try:
+            # Set up the Replicate client
+            client = replicate.Client(api_token=REPLICATE_API_TOKEN)
+            
+            # Run the Flux model
+            output = client.run(
+                "black-forest-labs/flux-1.1-pro-ultra:c621b53b1e3c8b67ab0aa93ed3d6f53c9c0c2a0e9b3f2a2e44c3c0c2f7b7e7c",
+                input={
+                    "prompt": user_text,
+                    "negative_prompt": "nsfw, nude, naked, porn, explicit, gore, blood, violence, disturbing",
+                    "num_inference_steps": 30,
+                    "guidance_scale": 7.5,
+                    "width": 1024,
+                    "height": 1024,
+                    "seed": None,
+                    "scheduler": "K_EULER_ANCESTRAL",
+                    "num_outputs": 1
+                }
+            )
+            
+            if output and len(output) > 0:
+                # Get the image URL from the output
+                image_url = output[0]
+                
+                # Send the image
+                await update.message.reply_photo(
+                    photo=image_url,
+                    caption=(
+                        f"🎨 İşte Flux ile oluşturduğum resim!\n\n"
+                        f"📝 Prompt: {user_text}\n"
+                        f"🔄 Model: Flux 1.1 Pro Ultra"
+                    )
+                )
+            else:
+                raise Exception("Model çıktı üretmedi")
+                
+        except Exception as e:
+            logger.error(f"Flux generation error: {str(e)}")
+            await update.message.reply_text(
+                "❌ Resim oluşturulurken bir hata oluştu.\n"
+                "Lütfen daha sonra tekrar deneyin."
+            )
+        
+        finally:
+            await processing_message.delete()
+            
+    except Exception as e:
+        logger.error(f"Flux command error: {str(e)}")
         await update.message.reply_text("Bir hata oluştu. Lütfen tekrar deneyin.")
 
 async def whois_lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -701,7 +778,8 @@ def main():
 
         # Add handlers
         application.add_handler(CommandHandler("start", start))
-        application.add_handler(CommandHandler("generate", generate_image))
+        application.add_handler(CommandHandler("dalle", generate_dalle))
+        application.add_handler(CommandHandler("flux", generate_flux))
         application.add_handler(CommandHandler("song", search_song))
         application.add_handler(CommandHandler("whois", whois_lookup))
         application.add_handler(CommandHandler("yt", youtube_command))
