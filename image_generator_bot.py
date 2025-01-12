@@ -529,7 +529,7 @@ async def generate_flux(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "guidance_scale": 7.5,
                     "width": 1024,
                     "height": 1024,
-                    "seed": None,
+                    "seed": 42,
                     "scheduler": "DPMSolverMultistep",
                     "num_outputs": 1
                 }
