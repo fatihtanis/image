@@ -65,31 +65,31 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def extract_video_id(url):
     """Extract video ID from various YouTube URL formats."""
-    # Clean the URL first
-    url = url.strip()
-    
-    # Try to extract video ID using regex patterns
-    patterns = [
-        r'(?:v=|v\/|embed\/|youtu.be\/|\/v\/|\/e\/|watch\?v=|youtube.com\/shorts\/)([^&?#\n]+)',
-        r'(?:youtube\.com\/watch\?v=|youtu.be\/|youtube.com\/shorts\/)([^&\n?]+)',
-        r'youtube.com\/embed\/([^&\n?]+)'
-    ]
-    
-    for pattern in patterns:
-        match = re.search(pattern, url)
-        if match:
-            return match.group(1)
-    
-    # If no match found, try parsing URL parameters
     try:
-        if 'youtube.com/watch' in url:
-            query = urllib.parse.urlparse(url).query
-            params = urllib.parse.parse_qs(query)
-            if 'v' in params:
-                return params['v'][0]
-    except:
-        pass
+        # Parse the URL
+        parsed_url = urllib.parse.urlparse(url)
         
+        # Handle youtu.be links
+        if 'youtu.be' in parsed_url.netloc:
+            return parsed_url.path.strip('/')
+        
+        # Handle youtube.com links
+        if 'youtube.com' in parsed_url.netloc:
+            # Parse query parameters
+            query_params = urllib.parse.parse_qs(parsed_url.query)
+            
+            # Get video ID from v parameter
+            if 'v' in query_params:
+                return query_params['v'][0]
+            
+            # Handle /embed/ and /shorts/ URLs
+            path = parsed_url.path
+            if '/embed/' in path or '/shorts/' in path:
+                return path.split('/')[-1]
+    
+    except Exception as e:
+        logger.error(f"URL parsing error: {str(e)}")
+    
     return None
 
 async def youtube_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
