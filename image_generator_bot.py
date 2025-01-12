@@ -1,5 +1,6 @@
 import os
 import logging
+import sys
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 import requests
@@ -10,11 +11,17 @@ import base64
 from pytube import YouTube
 import re
 import replicate
+import json
+from typing import Optional, Dict, Any
 
-# Enable logging
+# Enable logging with file output
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    level=logging.INFO,
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler('bot.log')
+    ]
 )
 
 logger = logging.getLogger(__name__)
@@ -23,15 +30,20 @@ logger = logging.getLogger(__name__)
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
 AUDD_API_TOKEN = os.getenv("AUDD_API_TOKEN")
-if not TELEGRAM_TOKEN:
-    raise ValueError("No TELEGRAM_TOKEN environment variable found!")
-if not REPLICATE_API_TOKEN:
-    raise ValueError("No REPLICATE_API_TOKEN environment variable found!")
-if not AUDD_API_TOKEN:
-    raise ValueError("No AUDD_API_TOKEN environment variable found!")
+
+# Check all required tokens
+required_tokens = {
+    "TELEGRAM_TOKEN": TELEGRAM_TOKEN,
+    "REPLICATE_API_TOKEN": REPLICATE_API_TOKEN,
+    "AUDD_API_TOKEN": AUDD_API_TOKEN
+}
+
+missing_tokens = [name for name, token in required_tokens.items() if not token]
+if missing_tokens:
+    raise ValueError(f"Missing required environment variables: {', '.join(missing_tokens)}")
 
 # Rate limiting
-USER_RATES = defaultdict(list)
+USER_RATES: Dict[int, list] = defaultdict(list)
 MAX_REQUESTS_PER_MINUTE = 3
 MAX_PROMPT_LENGTH = 200
 
@@ -41,7 +53,7 @@ WHOIS_API_BASE = "https://rdap.org/domain/"
 AUDD_API_URL = "https://api.audd.io/"
 
 # YouTube video info cache
-youtube_cache = {}
+youtube_cache: Dict[str, Dict[str, Any]] = {}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send a message when the command /start is issued."""
@@ -424,7 +436,7 @@ async def generate_dalle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             encoded_text = urllib.parse.quote(user_text)
             
             # Make request to the DALL-E 3 API
-            api_url = f"https://prompt.glitchy.workers.dev/gen?key={encoded_text}&t=0.2&f=dalle3&demo=true&count=1"
+            api_url = f"https://prompt.glitchy.workers.dev/gen?key={encoded_text}&t=0.2&f=dalle3&demo=true&count=1&nsfw=true"
             response = requests.get(api_url, timeout=30)
             
             if response.status_code == 200:
@@ -507,7 +519,6 @@ async def generate_flux(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "black-forest-labs/flux-1.1-pro-ultra:c621b53b1e3c8b67ab0aa93ed3d6f53c9c0c2a0e9b3f2a2e44c3c0c2f7b7e7c",
                 input={
                     "prompt": user_text,
-                    "negative_prompt": "nsfw, nude, naked, porn, explicit, gore, blood, violence, disturbing",
                     "num_inference_steps": 30,
                     "guidance_scale": 7.5,
                     "width": 1024,
@@ -779,21 +790,46 @@ def main():
         # Create the Application and pass it your bot's token
         application = Application.builder().token(TELEGRAM_TOKEN).build()
 
-        # Add handlers
-        application.add_handler(CommandHandler("start", start))
-        application.add_handler(CommandHandler("dalle", generate_dalle))
-        application.add_handler(CommandHandler("flux", generate_flux))
-        application.add_handler(CommandHandler("song", search_song))
-        application.add_handler(CommandHandler("whois", whois_lookup))
-        application.add_handler(CommandHandler("yt", youtube_command))
-        application.add_handler(CallbackQueryHandler(youtube_button))
-        application.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, recognize_music))
+        # Add command handlers
+        handlers = [
+            CommandHandler("start", start),
+            CommandHandler("dalle", generate_dalle),
+            CommandHandler("flux", generate_flux),
+            CommandHandler("song", search_song),
+            CommandHandler("whois", whois_lookup),
+            CommandHandler("yt", youtube_command),
+            CallbackQueryHandler(youtube_button),
+            MessageHandler(filters.VOICE | filters.AUDIO, recognize_music)
+        ]
 
-        # Start the Bot
+        # Add all handlers to the application
+        for handler in handlers:
+            application.add_handler(handler)
+
+        # Log startup information
+        logger.info("Bot configuration:")
+        logger.info(f"- Maximum requests per minute: {MAX_REQUESTS_PER_MINUTE}")
+        logger.info(f"- Maximum prompt length: {MAX_PROMPT_LENGTH}")
+        logger.info("- Available commands: start, dalle, flux, song, whois, yt")
+        logger.info("- Music recognition enabled: Yes")
         logger.info("Bot started successfully!")
-        application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+        # Start the Bot with error handling
+        application.run_polling(
+            allowed_updates=Update.ALL_TYPES,
+            drop_pending_updates=True,
+            timeout=60
+        )
     except Exception as e:
-        logger.error(f"Main function error: {str(e)}")
+        logger.error(f"Critical error in main function: {str(e)}", exc_info=True)
+        sys.exit(1)
 
 if __name__ == '__main__':
-    main() 
+    try:
+        main()
+    except KeyboardInterrupt:
+        logger.info("Bot stopped by user")
+        sys.exit(0)
+    except Exception as e:
+        logger.error(f"Unhandled exception: {str(e)}", exc_info=True)
+        sys.exit(1) 
