@@ -521,7 +521,7 @@ async def generate_flux(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Run the Flux model with better error handling
             logger.info(f"Starting image generation with prompt: {user_text}")
             output = client.run(
-                "black-forest-labs/flux-1.1-pro-ultra:c621b53b1e3c8b67ab0aa93ed3d6f53c9c0c2a0e9b3f2a2e44c3c0c2f7b7e7c",
+                "jingyechen/flux:1c0eef33c866c2f82c72d520c2b472eb5b4fa468f85a7088432927cb684d41a5",
                 input={
                     "prompt": user_text,
                     "num_outputs": 1,
