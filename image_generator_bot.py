@@ -1,12 +1,14 @@
 import os
 import logging
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 import requests
 import urllib.parse
 from datetime import datetime, timedelta
 from collections import defaultdict
 import base64
+from pytube import YouTube
+import re
 
 # Enable logging
 logging.basicConfig(
@@ -18,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 # Get the token from environment variable
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-AUDD_API_TOKEN = os.getenv("AUDD_API_TOKEN")  # AudD API token'ı
+AUDD_API_TOKEN = os.getenv("AUDD_API_TOKEN")
 if not TELEGRAM_TOKEN:
     raise ValueError("No TELEGRAM_TOKEN environment variable found!")
 
@@ -32,6 +34,9 @@ MUSIC_API_BASE = "https://jiosaavn-api-codyandersan.vercel.app/search/all"
 WHOIS_API_BASE = "https://rdap.org/domain/"
 AUDD_API_URL = "https://api.audd.io/"
 
+# YouTube video info cache
+youtube_cache = {}
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send a message when the command /start is issued."""
     try:
@@ -42,12 +47,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f'1. Resim oluşturmak için: /generate [açıklama]\n'
             f'2. Şarkı aramak için: /song [şarkı adı]\n'
             f'3. Domain sorgulamak için: /whois [domain.com]\n'
-            f'4. Müzik tanımak için: Ses kaydı veya müzik dosyası gönderin 🎵\n\n'
+            f'4. Müzik tanımak için: Ses kaydı veya müzik dosyası gönderin 🎵\n'
+            f'5. YouTube indirmek için: /yt [video linki]\n\n'
             f'Örnekler:\n'
             f'- /generate bir adam denizde yüzüyor 🎨\n'
             f'- /song Hadise Aşk Kaç Beden Giyer 🎵\n'
             f'- /whois google.com 🔍\n'
-            f'- Müzik tanıma için ses kaydı veya müzik dosyası gönderin 🎧\n\n'
+            f'- Müzik tanıma için ses kaydı veya müzik dosyası gönderin 🎧\n'
+            f'- /yt https://youtube.com/watch?v=... 📥\n\n'
             f'Limitler:\n'
             f'- Dakikada {MAX_REQUESTS_PER_MINUTE} resim oluşturabilirsiniz\n'
             f'- Maksimum {MAX_PROMPT_LENGTH} karakter uzunluğunda açıklama'
@@ -55,6 +62,163 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Start command error: {str(e)}")
         await update.message.reply_text("Bir hata oluştu. Lütfen tekrar deneyin.")
+
+def extract_video_id(url):
+    """Extract video ID from various YouTube URL formats."""
+    patterns = [
+        r'(?:youtube\.com\/watch\?v=|youtu.be\/|youtube.com\/shorts\/)([^&\n?]+)',
+        r'youtube.com\/embed\/([^&\n?]+)'
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match:
+            return match.group(1)
+    return None
+
+async def youtube_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle YouTube download command."""
+    try:
+        # Check if URL is provided
+        if not context.args:
+            await update.message.reply_text(
+                "Lütfen bir YouTube linki girin.\n"
+                "Örnek: /yt https://youtube.com/watch?v=..."
+            )
+            return
+        
+        # Get the URL
+        url = context.args[0]
+        video_id = extract_video_id(url)
+        
+        if not video_id:
+            await update.message.reply_text(
+                "❌ Geçersiz YouTube linki.\n"
+                "Lütfen geçerli bir YouTube linki girin."
+            )
+            return
+        
+        # Send processing message
+        processing_message = await update.message.reply_text(
+            "🔍 Video bilgileri alınıyor..."
+        )
+        
+        try:
+            # Get video info
+            yt = YouTube(url)
+            
+            # Cache video info
+            youtube_cache[video_id] = {
+                'url': url,
+                'title': yt.title,
+                'author': yt.author,
+                'length': yt.length,
+                'views': yt.views,
+                'thumbnail': yt.thumbnail_url
+            }
+            
+            # Create format selection buttons
+            keyboard = [
+                [
+                    InlineKeyboardButton("🎵 MP3 (320kbps)", callback_data=f"yt_audio_{video_id}"),
+                    InlineKeyboardButton("🎥 720p MP4", callback_data=f"yt_720_{video_id}")
+                ],
+                [
+                    InlineKeyboardButton("🎥 1080p MP4", callback_data=f"yt_1080_{video_id}"),
+                    InlineKeyboardButton("🎥 360p MP4", callback_data=f"yt_360_{video_id}")
+                ]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            # Send video info with format selection
+            await update.message.reply_photo(
+                photo=yt.thumbnail_url,
+                caption=(
+                    f"📹 Video Bilgileri:\n\n"
+                    f"📝 Başlık: {yt.title}\n"
+                    f"👤 Kanal: {yt.author}\n"
+                    f"⏱️ Süre: {yt.length} saniye\n"
+                    f"👁️ İzlenme: {yt.views:,}\n\n"
+                    f"Lütfen indirme formatını seçin:"
+                ),
+                reply_markup=reply_markup
+            )
+            
+        except Exception as e:
+            logger.error(f"YouTube info error: {str(e)}")
+            await update.message.reply_text(
+                "❌ Video bilgileri alınamadı.\n"
+                "Lütfen geçerli bir YouTube linki girdiğinizden emin olun."
+            )
+        
+        finally:
+            await processing_message.delete()
+            
+    except Exception as e:
+        logger.error(f"YouTube command error: {str(e)}")
+        await update.message.reply_text("Bir hata oluştu. Lütfen tekrar deneyin.")
+
+async def youtube_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle YouTube format selection buttons."""
+    query = update.callback_query
+    await query.answer()
+    
+    try:
+        # Parse callback data
+        action, format_type, video_id = query.data.split('_')
+        video_info = youtube_cache.get(video_id)
+        
+        if not video_info:
+            await query.message.reply_text(
+                "❌ Video bilgileri zaman aşımına uğradı.\n"
+                "Lütfen /yt komutunu tekrar kullanın."
+            )
+            return
+        
+        # Send processing message
+        processing_message = await query.message.reply_text(
+            "📥 İndirme hazırlanıyor..."
+        )
+        
+        try:
+            yt = YouTube(video_info['url'])
+            
+            if format_type == 'audio':
+                # Download as MP3
+                stream = yt.streams.filter(only_audio=True).first()
+                if not stream:
+                    raise Exception("Ses akışı bulunamadı")
+                
+                await query.message.reply_text(
+                    f"🎵 MP3 indirme linki hazır:\n{stream.url}\n\n"
+                    "Not: Link 6 saat geçerlidir."
+                )
+                
+            else:
+                # Download as MP4
+                resolution = format_type + 'p'
+                stream = yt.streams.filter(res=resolution, progressive=True).first()
+                if not stream:
+                    raise Exception(f"{resolution} çözünürlükte video bulunamadı")
+                
+                await query.message.reply_text(
+                    f"🎥 {resolution} MP4 indirme linki hazır:\n{stream.url}\n\n"
+                    "Not: Link 6 saat geçerlidir."
+                )
+            
+        except Exception as e:
+            logger.error(f"YouTube download error: {str(e)}")
+            await query.message.reply_text(
+                f"❌ İndirme hazırlanırken hata oluştu: {str(e)}\n"
+                "Lütfen başka bir format seçin veya daha sonra tekrar deneyin."
+            )
+        
+        finally:
+            await processing_message.delete()
+            
+    except Exception as e:
+        logger.error(f"YouTube button error: {str(e)}")
+        await query.message.reply_text("Bir hata oluştu. Lütfen tekrar deneyin.")
 
 async def search_song(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Search for a song and return its details."""
@@ -506,6 +670,8 @@ def main():
         application.add_handler(CommandHandler("generate", generate_image))
         application.add_handler(CommandHandler("song", search_song))
         application.add_handler(CommandHandler("whois", whois_lookup))
+        application.add_handler(CommandHandler("yt", youtube_command))
+        application.add_handler(CallbackQueryHandler(youtube_button))
         application.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, recognize_music))
 
         # Start the Bot
