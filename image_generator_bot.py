@@ -900,15 +900,13 @@ async def upscale_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         # Initialize Replicate client
         replicate = Client(api_token=os.getenv("REPLICATE_API_TOKEN"))
         
-        # Run Upscale model
+        # Run Upscale model with verified parameters
         output = replicate.run(
-            "jingyunliang/swinir:660d922d33153019e8c263a3bba265de882e7f4f70396546b6c9c8f9d47a021a",
+            "tencentarc/gfpgan:9283608cc6b7be6b65a8e44983db012355fde4132009bf99d976b2f0896856a3",
             input={
-                "image": file_url,
-                "task_type": "Real-World Image Super-Resolution-Large",
-                "scale": 4,
-                "noise": 15,
-                "jpeg": 40
+                "img": file_url,
+                "version": "v1.4",
+                "scale": 2
             }
         )
         
