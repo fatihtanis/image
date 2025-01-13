@@ -909,25 +909,27 @@ async def upscale_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             }
         )
         
-        if output and isinstance(output, list) and len(output) > 0:
+        if output and isinstance(output, str):
+            enhanced_url = output
+        elif output and isinstance(output, list) and len(output) > 0:
             enhanced_url = output[0]
-            
-            # Send enhanced image
-            await context.bot.send_photo(
-                chat_id=update.effective_chat.id,
-                photo=enhanced_url,
-                caption="✨ Resim iyileştirildi!\n🔍 4x daha yüksek kalite"
-            )
-            
-            # Update user count
-            user_upscale_counts[user_id]["count"] += 1
-            remaining = UPSCALE_DAILY_LIMIT - user_upscale_counts[user_id]["count"]
-            
-            await update.message.reply_text(
-                f"ℹ️ Günlük kalan iyileştirme hakkınız: {remaining}/3"
-            )
         else:
-            await update.message.reply_text("❌ Resim iyileştirilemedi. Lütfen tekrar deneyin.")
+            raise Exception("Invalid output format from Replicate API")
+
+        # Send enhanced image
+        await context.bot.send_photo(
+            chat_id=update.effective_chat.id,
+            photo=enhanced_url,
+            caption="✨ Resim iyileştirildi!\n🔍 4x daha yüksek kalite"
+        )
+        
+        # Update user count
+        user_upscale_counts[user_id]["count"] += 1
+        remaining = UPSCALE_DAILY_LIMIT - user_upscale_counts[user_id]["count"]
+        
+        await update.message.reply_text(
+            f"ℹ️ Günlük kalan iyileştirme hakkınız: {remaining}/3"
+        )
         
         await processing_msg.delete()
         
