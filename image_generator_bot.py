@@ -53,6 +53,7 @@ MAX_PROMPT_LENGTH = 200
 MUSIC_API_BASE = "https://jiosaavn-api-codyandersan.vercel.app/search/all"
 WHOIS_API_BASE = "https://rdap.org/domain/"
 AUDD_API_URL = "https://api.audd.io/"
+OPENAI_API_BASE = "https://api.openai.com/v1/chat/completions"
 
 # YouTube video info cache
 youtube_cache: Dict[str, Dict[str, Any]] = {}
@@ -62,6 +63,9 @@ UPSCALE_DAILY_LIMIT = 3
 FLUX_DAILY_LIMIT = 3
 user_upscale_counts: Dict[int, Dict[str, int]] = defaultdict(lambda: {"count": 0, "reset_date": ""})
 user_flux_counts: Dict[int, Dict[str, int]] = defaultdict(lambda: {"count": 0, "reset_date": ""})
+
+# Add after other user tracking
+chat_histories = defaultdict(list)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send a message when the command /start is issued."""
@@ -937,6 +941,72 @@ async def upscale_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         logging.error(f"Upscale error: {str(e)}")
         await update.message.reply_text("❌ Bir hata oluştu. Lütfen daha sonra tekrar deneyin.")
 
+async def chat_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle chat conversations using GPT-3.5-turbo."""
+    try:
+        if not context.args:
+            await update.message.reply_text(
+                "❌ Lütfen bir mesaj yazın.\n"
+                "Örnek: /chat Merhaba, nasılsın?"
+            )
+            return
+            
+        user_id = update.effective_user.id
+        message = " ".join(context.args)
+        
+        # Send typing action
+        await update.message.chat.send_action(action="typing")
+        
+        # Prepare chat history
+        chat_history = chat_histories[user_id][-5:] if chat_histories[user_id] else []
+        
+        # Prepare messages for API
+        messages = [
+            {"role": "system", "content": "Sen yardımcı bir asistansın. Türkçe ve İngilizce konuşabilirsin."}
+        ]
+        
+        # Add chat history
+        for msg in chat_history:
+            messages.append(msg)
+            
+        # Add user's new message
+        messages.append({"role": "user", "content": message})
+        
+        # Make request to OpenAI
+        headers = {
+            "Authorization": f"Bearer {os.getenv('OPENAI_API_KEY')}",
+            "Content-Type": "application/json"
+        }
+        
+        data = {
+            "model": "gpt-3.5-turbo",
+            "messages": messages,
+            "temperature": 0.7,
+            "max_tokens": 1000
+        }
+        
+        response = requests.post(OPENAI_API_BASE, headers=headers, json=data, timeout=30)
+        response_data = response.json()
+        
+        if response.status_code == 200 and "choices" in response_data:
+            bot_response = response_data["choices"][0]["message"]["content"]
+            
+            # Update chat history
+            chat_histories[user_id].append({"role": "user", "content": message})
+            chat_histories[user_id].append({"role": "assistant", "content": bot_response})
+            
+            # Send response
+            await update.message.reply_text(bot_response)
+        else:
+            raise Exception(f"API Error: {response_data.get('error', {}).get('message', 'Unknown error')}")
+            
+    except Exception as e:
+        logger.error(f"Chat error: {str(e)}")
+        await update.message.reply_text(
+            "❌ Sohbet sırasında bir hata oluştu.\n"
+            "Lütfen daha sonra tekrar deneyin."
+        )
+
 def main():
     """Start the bot."""
     try:
@@ -954,7 +1024,8 @@ def main():
             CommandHandler("speedtest", speed_test),
             CommandHandler("upscale", upscale_image),
             CallbackQueryHandler(youtube_button),
-            MessageHandler(filters.VOICE | filters.AUDIO, recognize_music)
+            MessageHandler(filters.VOICE | filters.AUDIO, recognize_music),
+            CommandHandler("chat", chat_command)
         ]
 
         # Add all handlers to the application
