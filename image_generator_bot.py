@@ -900,10 +900,16 @@ async def upscale_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         # Initialize Replicate client
         replicate = Client(api_token=os.getenv("REPLICATE_API_TOKEN"))
         
-        # Run Real-ESRGAN model
+        # Run Upscale model
         output = replicate.run(
-            "nightmareai/real-esrgan:42fed1c4974146d4d2414e2be2c5277c7fcf05fcc3a73abf41610695738c1d7b",
-            input={"image": file_url}
+            "jingyunliang/swinir:660d922d33153019e8c263a3bba265de882e7f4f70396546b6c9c8f9d47a021a",
+            input={
+                "image": file_url,
+                "task_type": "Real-World Image Super-Resolution",
+                "scale": 4,
+                "noise": 15,
+                "jpeg": 40
+            }
         )
         
         if output and isinstance(output, list) and len(output) > 0:
