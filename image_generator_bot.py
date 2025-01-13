@@ -905,7 +905,7 @@ async def upscale_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             "jingyunliang/swinir:660d922d33153019e8c263a3bba265de882e7f4f70396546b6c9c8f9d47a021a",
             input={
                 "image": file_url,
-                "task_type": "Real-World Image Super-Resolution",
+                "task_type": "Real-World Image Super-Resolution-Large",
                 "scale": 4,
                 "noise": 15,
                 "jpeg": 40
