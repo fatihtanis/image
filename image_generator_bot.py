@@ -15,6 +15,8 @@ import replicate
 import json
 from typing import Optional, Dict, Any, List
 import speedtest
+import torch
+from transformers import AutoModelForSeq2SeqGeneration, AutoTokenizer
 
 # Enable logging with file output
 logging.basicConfig(
@@ -66,6 +68,11 @@ user_flux_counts: Dict[int, Dict[str, int]] = defaultdict(lambda: {"count": 0, "
 
 # Add after other user tracking
 chat_histories = defaultdict(list)
+
+# Initialize Flan-T5 model and tokenizer
+model_name = "google/flan-t5-large"
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModelForSeq2SeqGeneration.from_pretrained(model_name)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send a message when the command /start is issued."""
@@ -942,70 +949,47 @@ async def upscale_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text("❌ Bir hata oluştu. Lütfen daha sonra tekrar deneyin.")
 
 async def chat_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle chat conversations using GPT-3.5-turbo."""
+    """Handle the /chat command - Talk with Flan-T5 AI"""
     try:
+        # Get user input
         if not context.args:
-            await update.message.reply_text(
-                "❌ Lütfen bir mesaj yazın.\n"
-                "Örnek: /chat Merhaba, nasılsın?"
-            )
+            await update.message.reply_text("❌ Lütfen bir mesaj girin.\nÖrnek: /chat Merhaba, nasılsın?")
             return
             
-        user_id = update.effective_user.id
-        message = " ".join(context.args)
+        user_id = update.message.from_user.id
+        user_input = ' '.join(context.args)
         
-        # Send typing action
+        # Show typing action
         await update.message.chat.send_action(action="typing")
         
-        # Prepare chat history
-        chat_history = chat_histories[user_id][-5:] if chat_histories[user_id] else []
+        # Get chat history
+        if user_id not in chat_histories:
+            chat_histories[user_id] = []
         
-        # Prepare messages for API
-        messages = [
-            {"role": "system", "content": "Sen yardımcı bir asistansın. Türkçe ve İngilizce konuşabilirsin."}
-        ]
+        # Add user message to history
+        chat_histories[user_id].append(f"User: {user_input}")
         
-        # Add chat history
-        for msg in chat_history:
-            messages.append(msg)
+        # Keep only last 5 messages
+        if len(chat_histories[user_id]) > 5:
+            chat_histories[user_id] = chat_histories[user_id][-5:]
             
-        # Add user's new message
-        messages.append({"role": "user", "content": message})
+        # Prepare input text with history
+        input_text = "\n".join(chat_histories[user_id])
         
-        # Make request to OpenAI
-        headers = {
-            "Authorization": f"Bearer {os.getenv('OPENAI_API_KEY')}",
-            "Content-Type": "application/json"
-        }
+        # Generate response
+        inputs = tokenizer(input_text, return_tensors="pt", max_length=512, truncation=True)
+        outputs = model.generate(**inputs, max_length=128, num_beams=4)
+        response = tokenizer.decode(outputs[0], skip_special_tokens=True)
         
-        data = {
-            "model": "gpt-3.5-turbo",
-            "messages": messages,
-            "temperature": 0.7,
-            "max_tokens": 1000
-        }
+        # Add AI response to history
+        chat_histories[user_id].append(f"Assistant: {response}")
         
-        response = requests.post(OPENAI_API_BASE, headers=headers, json=data, timeout=30)
-        response_data = response.json()
+        # Send response
+        await update.message.reply_text(response)
         
-        if response.status_code == 200 and "choices" in response_data:
-            bot_response = response_data["choices"][0]["message"]["content"]
-            
-            # Update chat history
-            chat_histories[user_id].append({"role": "user", "content": message})
-            chat_histories[user_id].append({"role": "assistant", "content": bot_response})
-            
-            # Send response
-            await update.message.reply_text(bot_response)
-        else:
-            raise Exception(f"API Error: {response_data.get('error', {}).get('message', 'Unknown error')}")
-            
     except Exception as e:
         logger.error(f"Chat error: {str(e)}")
-        await update.message.reply_text(
-            "❌ Sohbet sırasında bir hata oluştu.\n"
-            "Lütfen daha sonra tekrar deneyin."
-        )
+        await update.message.reply_text("❌ Sohbet sırasında bir hata oluştu. Lütfen tekrar deneyin.")
 
 def main():
     """Start the bot."""
