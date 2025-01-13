@@ -797,23 +797,31 @@ async def speed_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         # Send initial message
         message = await update.message.reply_text(
-            "🔍 Size en yakın sunucular bulunuyor..."
+            "🔍 İnternet sağlayıcınızın sunucusu bulunuyor..."
         )
         
         # Initialize speedtest
         st = speedtest.Speedtest()
         
-        # Get closest servers
-        await message.edit_text("📡 En yakın sunucular bulundu, test başlatılıyor...")
-        servers = st.get_closest_servers(limit=5)
-        
-        # Get best server from closest ones
-        best_server = st.get_best_server(servers)
+        # Get servers from your ISP
+        await message.edit_text("📡 Sunucular bulundu, test başlatılıyor...")
+        servers = []
+        try:
+            servers = st.get_servers()
+            # Try to find server from same ISP
+            isp_servers = [s for s in servers if s['sponsor'] in st.config['client']['isp']]
+            if isp_servers:
+                best_server = st.get_best_server(isp_servers)
+            else:
+                best_server = st.get_best_server(servers)
+        except:
+            best_server = st.get_best_server()
         
         # Show selected server
         await message.edit_text(
-            f"🎯 Test Sunucusu Seçildi:\n"
-            f"📍 {best_server['sponsor']} ({best_server['name']})\n"
+            f"🎯 Test Sunucusu:\n"
+            f"📍 {best_server['sponsor']}\n"
+            f"🏢 {best_server['host']}\n"
             f"📌 {best_server['country']}\n\n"
             f"⏳ Test başlıyor, lütfen bekleyin..."
         )
@@ -842,7 +850,8 @@ async def speed_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"⬇️ İndirme: {download_mbps:.2f} Mbps\n"
             f"⬆️ Yükleme: {upload_mbps:.2f} Mbps\n"
             f"📡 Ping: {results['ping']:.0f} ms\n\n"
-            f"📍 Test Sunucusu: {best_server['sponsor']} ({best_server['name']})\n"
+            f"📍 Sunucu: {best_server['sponsor']}\n"
+            f"🏢 Host: {best_server['host']}\n"
             f"🌍 Konum: {best_server['country']}\n"
             f"📍 Mesafe: {best_server['d']:.2f} km\n"
             f"🕒 Test Tarihi: {test_date}"
