@@ -797,13 +797,26 @@ async def speed_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         # Send initial message
         message = await update.message.reply_text(
-            "🚀 İnternet hız testi başlatılıyor...\n"
-            "Bu işlem 30-45 saniye sürebilir, lütfen bekleyin."
+            "🔍 Size en yakın sunucular bulunuyor..."
         )
         
         # Initialize speedtest
         st = speedtest.Speedtest()
-        st.get_best_server()  # Get best server first
+        
+        # Get closest servers
+        await message.edit_text("📡 En yakın sunucular bulundu, test başlatılıyor...")
+        servers = st.get_closest_servers(limit=5)
+        
+        # Get best server from closest ones
+        best_server = st.get_best_server(servers)
+        
+        # Show selected server
+        await message.edit_text(
+            f"🎯 Test Sunucusu Seçildi:\n"
+            f"📍 {best_server['sponsor']} ({best_server['name']})\n"
+            f"📌 {best_server['country']}\n\n"
+            f"⏳ Test başlıyor, lütfen bekleyin..."
+        )
         
         # Test download speed
         await message.edit_text("⬇️ İndirme hızı test ediliyor...")
@@ -823,17 +836,15 @@ async def speed_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Format date (Turkish format)
         test_date = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
         
-        # Format server info
-        server_name = results["server"]["name"]
-        server_country = results["server"]["country"]
-        
         # Format results
         results_text = (
             "🌐 İnternet Hız Testi Sonuçları:\n\n"
             f"⬇️ İndirme: {download_mbps:.2f} Mbps\n"
             f"⬆️ Yükleme: {upload_mbps:.2f} Mbps\n"
             f"📡 Ping: {results['ping']:.0f} ms\n\n"
-            f"🖥️ Test Sunucusu: {server_name}, {server_country}\n"
+            f"📍 Test Sunucusu: {best_server['sponsor']} ({best_server['name']})\n"
+            f"🌍 Konum: {best_server['country']}\n"
+            f"📍 Mesafe: {best_server['d']:.2f} km\n"
             f"🕒 Test Tarihi: {test_date}"
         )
         
