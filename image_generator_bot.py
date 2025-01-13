@@ -15,8 +15,6 @@ import replicate
 import json
 from typing import Optional, Dict, Any, List
 import speedtest
-import torch
-from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
 # Enable logging with file output
 logging.basicConfig(
@@ -55,7 +53,6 @@ MAX_PROMPT_LENGTH = 200
 MUSIC_API_BASE = "https://jiosaavn-api-codyandersan.vercel.app/search/all"
 WHOIS_API_BASE = "https://rdap.org/domain/"
 AUDD_API_URL = "https://api.audd.io/"
-OPENAI_API_BASE = "https://api.openai.com/v1/chat/completions"
 
 # YouTube video info cache
 youtube_cache: Dict[str, Dict[str, Any]] = {}
@@ -65,14 +62,6 @@ UPSCALE_DAILY_LIMIT = 3
 FLUX_DAILY_LIMIT = 3
 user_upscale_counts: Dict[int, Dict[str, int]] = defaultdict(lambda: {"count": 0, "reset_date": ""})
 user_flux_counts: Dict[int, Dict[str, int]] = defaultdict(lambda: {"count": 0, "reset_date": ""})
-
-# Add after other user tracking
-chat_histories = defaultdict(list)
-
-# Initialize Flan-T5 model and tokenizer
-model_name = "google/flan-t5-small"
-tokenizer = AutoTokenizer.from_pretrained(model_name)
-model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send a message when the command /start is issued."""
@@ -751,7 +740,7 @@ async def recognize_music(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     message = "🎵 Müzik Bulundu!\n\n"
                     message += f"🎤 Sanatçı: {result.get('artist', 'Bilinmiyor')}\n"
                     message += f"🎼 Şarkı: {result.get('title', 'Bilinmiyor')}\n"
-                    message += f"�� Albüm: {result.get('album', 'Bilinmiyor')}\n"
+                    message += f"💿 Albüm: {result.get('album', 'Bilinmiyor')}\n"
                     message += f"📅 Yıl: {result.get('release_date', 'Bilinmiyor')}\n\n"
                     
                     # Add streaming links if available
@@ -948,49 +937,6 @@ async def upscale_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         logging.error(f"Upscale error: {str(e)}")
         await update.message.reply_text("❌ Bir hata oluştu. Lütfen daha sonra tekrar deneyin.")
 
-async def chat_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle the /chat command - Talk with Flan-T5 AI"""
-    try:
-        # Get user input
-        if not context.args:
-            await update.message.reply_text("❌ Lütfen bir mesaj girin.\nÖrnek: /chat Merhaba, nasılsın?")
-            return
-            
-        user_id = update.message.from_user.id
-        user_input = ' '.join(context.args)
-        
-        # Show typing action
-        await update.message.chat.send_action(action="typing")
-        
-        # Get chat history
-        if user_id not in chat_histories:
-            chat_histories[user_id] = []
-        
-        # Add user message to history
-        chat_histories[user_id].append(f"User: {user_input}")
-        
-        # Keep only last 5 messages
-        if len(chat_histories[user_id]) > 5:
-            chat_histories[user_id] = chat_histories[user_id][-5:]
-            
-        # Prepare input text with history
-        input_text = "\n".join(chat_histories[user_id])
-        
-        # Generate response
-        inputs = tokenizer(input_text, return_tensors="pt", max_length=512, truncation=True)
-        outputs = model.generate(**inputs, max_length=128, num_beams=4)
-        response = tokenizer.decode(outputs[0], skip_special_tokens=True)
-        
-        # Add AI response to history
-        chat_histories[user_id].append(f"Assistant: {response}")
-        
-        # Send response
-        await update.message.reply_text(response)
-        
-    except Exception as e:
-        logger.error(f"Chat error: {str(e)}")
-        await update.message.reply_text("❌ Sohbet sırasında bir hata oluştu. Lütfen tekrar deneyin.")
-
 def main():
     """Start the bot."""
     try:
@@ -1008,8 +954,7 @@ def main():
             CommandHandler("speedtest", speed_test),
             CommandHandler("upscale", upscale_image),
             CallbackQueryHandler(youtube_button),
-            MessageHandler(filters.VOICE | filters.AUDIO, recognize_music),
-            CommandHandler("chat", chat_command)
+            MessageHandler(filters.VOICE | filters.AUDIO, recognize_music)
         ]
 
         # Add all handlers to the application
