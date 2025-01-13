@@ -803,32 +803,41 @@ async def speed_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Initialize speedtest
         st = speedtest.Speedtest()
-        
-        # Get best server
-        await message.edit_text("🔍 En iyi sunucu seçiliyor...")
-        st.get_best_server()
+        st.get_best_server()  # Get best server first
         
         # Test download speed
         await message.edit_text("⬇️ İndirme hızı test ediliyor...")
-        download_speed = st.download() / 1_000_000  # Convert to Mbps
+        download_speed = st.download()
         
         # Test upload speed
         await message.edit_text("⬆️ Yükleme hızı test ediliyor...")
-        upload_speed = st.upload() / 1_000_000  # Convert to Mbps
+        upload_speed = st.upload()
         
-        # Get ping
-        ping = st.results.ping
+        # Get results
+        results = st.results.dict()
+        
+        # Format speeds
+        download_mbps = download_speed / 1_000_000  # Convert to Mbps
+        upload_mbps = upload_speed / 1_000_000  # Convert to Mbps
+        
+        # Format date (Turkish format)
+        test_date = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+        
+        # Format server info
+        server_name = results["server"]["name"]
+        server_country = results["server"]["country"]
         
         # Format results
-        results = (
+        results_text = (
             "🌐 İnternet Hız Testi Sonuçları:\n\n"
-            f"⬇️ İndirme: {download_speed:.2f} Mbps\n"
-            f"⬆️ Yükleme: {upload_speed:.2f} Mbps\n"
-            f"📡 Ping: {ping:.0f} ms\n\n"
-            f"🕒 Test Tarihi: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            f"⬇️ İndirme: {download_mbps:.2f} Mbps\n"
+            f"⬆️ Yükleme: {upload_mbps:.2f} Mbps\n"
+            f"📡 Ping: {results['ping']:.0f} ms\n\n"
+            f"🖥️ Test Sunucusu: {server_name}, {server_country}\n"
+            f"🕒 Test Tarihi: {test_date}"
         )
         
-        await message.edit_text(results)
+        await message.edit_text(results_text)
         
     except Exception as e:
         logger.error(f"Speed test error: {str(e)}")
