@@ -10,6 +10,7 @@ from collections import defaultdict
 import base64
 from pytube import YouTube
 import re
+from replicate.client import Client
 import replicate
 import json
 from typing import Optional, Dict, Any, List
@@ -58,7 +59,9 @@ youtube_cache: Dict[str, Dict[str, Any]] = {}
 
 # User limits tracking
 UPSCALE_DAILY_LIMIT = 3
+FLUX_DAILY_LIMIT = 3
 user_upscale_counts: Dict[int, Dict[str, int]] = defaultdict(lambda: {"count": 0, "reset_date": ""})
+user_flux_counts: Dict[int, Dict[str, int]] = defaultdict(lambda: {"count": 0, "reset_date": ""})
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send a message when the command /start is issued."""
@@ -481,97 +484,83 @@ async def generate_dalle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"DALL-E command error: {str(e)}")
         await update.message.reply_text("Bir hata oluştu. Lütfen tekrar deneyin.")
 
-async def generate_flux(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Generate an image using Flux model."""
+async def generate_flux(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Generate an image using Flux model with daily limits."""
     try:
-        # Check if user provided text
-        if not context.args:
-            await update.message.reply_text(
-                "Lütfen bir açıklama girin.\n"
-                "Örnek: /flux bir adam denizde yüzüyor"
-            )
-            return
-        
-        # Get user ID for rate limiting
         user_id = update.effective_user.id
+        today = datetime.now().strftime("%Y-%m-%d")
         
-        # Check rate limit
-        if not check_rate_limit(user_id):
-            remaining_time = 60 - (datetime.now() - USER_RATES[user_id][0]).seconds
+        # Reset count if it's a new day
+        if user_flux_counts[user_id]["reset_date"] != today:
+            user_flux_counts[user_id] = {"count": 0, "reset_date": today}
+            
+        # Check if user has reached daily limit
+        if user_flux_counts[user_id]["count"] >= FLUX_DAILY_LIMIT:
+            remaining_time = datetime.now().replace(hour=0, minute=0, second=0) + timedelta(days=1)
+            hours_left = int((remaining_time - datetime.now()).total_seconds() / 3600)
             await update.message.reply_text(
-                f"Çok fazla istek gönderdiniz. Lütfen {remaining_time} saniye bekleyin."
+                f"⚠️ Günlük Flux resim limitinize ulaştınız (3/3)\n"
+                f"🕒 Limitiniz {hours_left} saat sonra yenilenecek."
             )
             return
-        
-        # Get the text after the command
-        user_text = ' '.join(context.args)
-        
-        # Check prompt length
-        if len(user_text) > MAX_PROMPT_LENGTH:
-            await update.message.reply_text(
-                f"Açıklama çok uzun! Maksimum {MAX_PROMPT_LENGTH} karakter girebilirsiniz."
-            )
+
+        # Get the prompt from message
+        if not context.args:
+            await update.message.reply_text("❌ Lütfen bir açıklama girin.\nÖrnek: /flux bir kedi ağaca tırmanıyor")
             return
+
+        prompt = " ".join(context.args)
         
-        # Send a "processing" message
-        processing_message = await update.message.reply_text(
-            "🎨 Flux ile resim oluşturuluyor...\n"
-            "Bu işlem 1-2 dakika sürebilir, lütfen bekleyin."
+        if len(prompt) > MAX_PROMPT_LENGTH:
+            await update.message.reply_text(f"❌ Açıklama çok uzun! Maksimum {MAX_PROMPT_LENGTH} karakter girebilirsiniz.")
+            return
+
+        # Send processing message
+        processing_msg = await update.message.reply_text("🔄 Model: SDXL LCM\n⏳ Resim oluşturuluyor...")
+
+        # Initialize Replicate client
+        replicate = Client(api_token=os.getenv("REPLICATE_API_TOKEN"))
+        
+        # Generate image
+        output = replicate.run(
+            "lucataco/sdxl-lcm:fbbd475b1084de80c47c35bfe4ae64b964294aa7e237e6537eed938cfd24903d",
+            input={
+                "prompt": prompt,
+                "width": 1024,
+                "height": 1024,
+                "num_inference_steps": 4,
+                "guidance_scale": 1.5,
+                "num_outputs": 1,
+                "seed": 42
+            }
         )
-        
-        try:
-            # Set up the Replicate client with error handling
-            if not REPLICATE_API_TOKEN:
-                raise ValueError("REPLICATE_API_TOKEN is not set")
-                
-            client = replicate.Client(api_token=REPLICATE_API_TOKEN)
-            logger.info("Replicate client initialized successfully")
+
+        if output and isinstance(output, list) and len(output) > 0:
+            image_url = output[0]
             
-            # Run the Flux model with better error handling
-            logger.info(f"Starting image generation with prompt: {user_text}")
-            output = client.run(
-                "lucataco/sdxl-lcm:fbbd475b1084de80c47c35bfe4ae64b964294aa7e237e6537eed938cfd24903d",
-                input={
-                    "prompt": user_text,
-                    "num_inference_steps": 4,
-                    "guidance_scale": 1.5,
-                    "width": 1024,
-                    "height": 1024,
-                    "seed": 42,
-                    "num_outputs": 1
-                }
+            # Send the generated image
+            await context.bot.send_photo(
+                chat_id=update.effective_chat.id,
+                photo=image_url,
+                caption=f"🎨 Prompt: {prompt}"
             )
-            logger.info("Image generation completed successfully")
             
-            if output and len(output) > 0:
-                # Get the image URL from the output
-                image_url = output[0]
-                
-                # Send the image
-                await update.message.reply_photo(
-                    photo=image_url,
-                    caption=(
-                        f"🎨 İşte Flux ile oluşturduğum resim!\n\n"
-                        f"📝 Prompt: {user_text}\n"
-                        f"🔄 Model: SDXL LCM"
-                    )
-                )
-            else:
-                raise Exception("Model çıktı üretmedi")
-                
-        except Exception as e:
-            logger.error(f"Flux generation error: {str(e)}")
+            # Update user count
+            user_flux_counts[user_id]["count"] += 1
+            remaining = FLUX_DAILY_LIMIT - user_flux_counts[user_id]["count"]
+            
             await update.message.reply_text(
-                "❌ Resim oluşturulurken bir hata oluştu.\n"
-                "Lütfen daha sonra tekrar deneyin."
+                f"ℹ️ Günlük kalan Flux resim hakkınız: {remaining}/3"
             )
-        
-        finally:
-            await processing_message.delete()
-            
+        else:
+            await update.message.reply_text("❌ Resim oluşturulamadı. Lütfen tekrar deneyin.")
+
+        # Delete processing message
+        await processing_msg.delete()
+
     except Exception as e:
-        logger.error(f"Flux command error: {str(e)}")
-        await update.message.reply_text("Bir hata oluştu. Lütfen tekrar deneyin.")
+        logger.error(f"Flux generation error: {str(e)}")
+        await update.message.reply_text("❌ Bir hata oluştu. Lütfen tekrar deneyin.")
 
 async def whois_lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Look up WHOIS information for a domain."""
