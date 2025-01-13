@@ -12,7 +12,7 @@ from pytube import YouTube
 import re
 import replicate
 import json
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import speedtest
 
 # Enable logging with file output
@@ -56,6 +56,10 @@ AUDD_API_URL = "https://api.audd.io/"
 # YouTube video info cache
 youtube_cache: Dict[str, Dict[str, Any]] = {}
 
+# User limits tracking
+UPSCALE_DAILY_LIMIT = 3
+user_upscale_counts: Dict[int, Dict[str, int]] = defaultdict(lambda: {"count": 0, "reset_date": ""})
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send a message when the command /start is issued."""
     try:
@@ -69,7 +73,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f'4. Domain sorgulamak için: /whois [domain.com]\n'
             f'5. Müzik tanımak için: Ses kaydı veya müzik dosyası gönderin 🎵\n'
             f'6. YouTube indirmek için: /yt [video linki]\n'
-            f'7. İnternet hız testi: /speedtest\n\n'
+            f'7. İnternet hız testi: /speedtest\n'
+            f'8. Resim iyileştirmek için: /upscale\n\n'
             f'Örnekler:\n'
             f'- /dalle bir adam denizde yüzüyor 🎨\n'
             f'- /flux bir adam denizde yüzüyor 🎨\n'
@@ -77,7 +82,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f'- /whois google.com 🔍\n'
             f'- Müzik tanıma için ses kaydı veya müzik dosyası gönderin 🎧\n'
             f'- /yt https://youtube.com/watch?v=... 📥\n'
-            f'- /speedtest\n\n'
+            f'- /speedtest\n'
+            f'- /upscale\n\n'
             f'Limitler:\n'
             f'- Dakikada {MAX_REQUESTS_PER_MINUTE} resim oluşturabilirsiniz\n'
             f'- Maksimum {MAX_PROMPT_LENGTH} karakter uzunluğunda açıklama'
@@ -866,6 +872,77 @@ async def speed_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Lütfen daha sonra tekrar deneyin."
         )
 
+async def upscale_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle image upscaling requests with daily limits."""
+    try:
+        user_id = update.effective_user.id
+        today = datetime.now().strftime("%Y-%m-%d")
+        
+        # Reset count if it's a new day
+        if user_upscale_counts[user_id]["reset_date"] != today:
+            user_upscale_counts[user_id] = {"count": 0, "reset_date": today}
+            
+        # Check if user has reached daily limit
+        if user_upscale_counts[user_id]["count"] >= UPSCALE_DAILY_LIMIT:
+            remaining_time = datetime.now().replace(hour=0, minute=0, second=0) + timedelta(days=1)
+            hours_left = int((remaining_time - datetime.now()).total_seconds() / 3600)
+            await update.message.reply_text(
+                f"⚠️ Günlük iyileştirme limitinize ulaştınız (3/3)\n"
+                f"🕒 Limitiniz {hours_left} saat sonra yenilenecek."
+            )
+            return
+
+        # Check if message has photo
+        if not update.message.reply_to_message or not update.message.reply_to_message.photo:
+            await update.message.reply_text(
+                "❌ Lütfen iyileştirmek istediğiniz resmi gönderin ve yanıtına /upscale yazın."
+            )
+            return
+
+        # Get the largest photo
+        photo = update.message.reply_to_message.photo[-1]
+        
+        # Download photo
+        processing_msg = await update.message.reply_text("🔄 Resim iyileştiriliyor...")
+        
+        file = await context.bot.get_file(photo.file_id)
+        file_url = file.file_path
+
+        # Initialize Replicate client
+        replicate = Client(api_token=os.getenv("REPLICATE_API_TOKEN"))
+        
+        # Run Real-ESRGAN model
+        output = replicate.run(
+            "nightmareai/real-esrgan:42fed1c4974146d4d2414e2be2c5277c7fcf05fcc3a73abf41610695738c1d7b",
+            input={"image": file_url}
+        )
+        
+        if output and isinstance(output, list) and len(output) > 0:
+            enhanced_url = output[0]
+            
+            # Send enhanced image
+            await context.bot.send_photo(
+                chat_id=update.effective_chat.id,
+                photo=enhanced_url,
+                caption="✨ Resim iyileştirildi!\n🔍 4x daha yüksek kalite"
+            )
+            
+            # Update user count
+            user_upscale_counts[user_id]["count"] += 1
+            remaining = UPSCALE_DAILY_LIMIT - user_upscale_counts[user_id]["count"]
+            
+            await update.message.reply_text(
+                f"ℹ️ Günlük kalan iyileştirme hakkınız: {remaining}/3"
+            )
+        else:
+            await update.message.reply_text("❌ Resim iyileştirilemedi. Lütfen tekrar deneyin.")
+        
+        await processing_msg.delete()
+        
+    except Exception as e:
+        logging.error(f"Upscale error: {str(e)}")
+        await update.message.reply_text("❌ Bir hata oluştu. Lütfen daha sonra tekrar deneyin.")
+
 def main():
     """Start the bot."""
     try:
@@ -881,6 +958,7 @@ def main():
             CommandHandler("whois", whois_lookup),
             CommandHandler("yt", youtube_command),
             CommandHandler("speedtest", speed_test),
+            CommandHandler("upscale", upscale_image),
             CallbackQueryHandler(youtube_button),
             MessageHandler(filters.VOICE | filters.AUDIO, recognize_music)
         ]
@@ -893,7 +971,7 @@ def main():
         logger.info("Bot configuration:")
         logger.info(f"- Maximum requests per minute: {MAX_REQUESTS_PER_MINUTE}")
         logger.info(f"- Maximum prompt length: {MAX_PROMPT_LENGTH}")
-        logger.info("- Available commands: start, dalle, flux, song, whois, yt, speedtest")
+        logger.info("- Available commands: start, dalle, flux, song, whois, yt, speedtest, upscale")
         logger.info("- Music recognition enabled: Yes")
         logger.info("Bot started successfully!")
 
