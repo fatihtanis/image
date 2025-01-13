@@ -902,11 +902,12 @@ async def upscale_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         
         # Run Upscale model with verified parameters
         output = replicate.run(
-            "tencentarc/gfpgan:9283608cc6b7be6b65a8e44983db012355fde4132009bf99d976b2f0896856a3",
+            "daanelson/image-upscaler:0383824b9a787c7ad16e537f1cd03b7ed05ca27c49d9293a687098ba6958cd16",
             input={
-                "img": file_url,
-                "version": "v1.4",
-                "scale": 2
+                "image": file_url,
+                "upscale": 2,
+                "face_enhance": True,
+                "background_enhance": True
             }
         )
         
