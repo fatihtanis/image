@@ -13,6 +13,7 @@ import re
 import replicate
 import json
 from typing import Optional, Dict, Any
+import speedtest
 
 # Enable logging with file output
 logging.basicConfig(
@@ -67,14 +68,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f'3. Şarkı aramak için: /song [şarkı adı]\n'
             f'4. Domain sorgulamak için: /whois [domain.com]\n'
             f'5. Müzik tanımak için: Ses kaydı veya müzik dosyası gönderin 🎵\n'
-            f'6. YouTube indirmek için: /yt [video linki]\n\n'
+            f'6. YouTube indirmek için: /yt [video linki]\n'
+            f'7. İnternet hız testi: /speedtest\n\n'
             f'Örnekler:\n'
             f'- /dalle bir adam denizde yüzüyor 🎨\n'
             f'- /flux bir adam denizde yüzüyor 🎨\n'
             f'- /song Hadise Aşk Kaç Beden Giyer 🎵\n'
             f'- /whois google.com 🔍\n'
             f'- Müzik tanıma için ses kaydı veya müzik dosyası gönderin 🎧\n'
-            f'- /yt https://youtube.com/watch?v=... 📥\n\n'
+            f'- /yt https://youtube.com/watch?v=... 📥\n'
+            f'- /speedtest\n\n'
             f'Limitler:\n'
             f'- Dakikada {MAX_REQUESTS_PER_MINUTE} resim oluşturabilirsiniz\n'
             f'- Maksimum {MAX_PROMPT_LENGTH} karakter uzunluğunda açıklama'
@@ -544,7 +547,7 @@ async def generate_flux(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     caption=(
                         f"🎨 İşte Flux ile oluşturduğum resim!\n\n"
                         f"📝 Prompt: {user_text}\n"
-                        f"🔄 Model: Flux 1.1 Pro Ultra"
+                        f"🔄 Model: SDXL LCM"
                     )
                 )
             else:
@@ -789,6 +792,51 @@ async def recognize_music(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Music recognition command error: {str(e)}")
         await update.message.reply_text("Bir hata oluştu. Lütfen tekrar deneyin.")
 
+async def speed_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Perform an internet speed test."""
+    try:
+        # Send initial message
+        message = await update.message.reply_text(
+            "🚀 İnternet hız testi başlatılıyor...\n"
+            "Bu işlem 30-45 saniye sürebilir, lütfen bekleyin."
+        )
+        
+        # Initialize speedtest
+        st = speedtest.Speedtest()
+        
+        # Get best server
+        await message.edit_text("🔍 En iyi sunucu seçiliyor...")
+        st.get_best_server()
+        
+        # Test download speed
+        await message.edit_text("⬇️ İndirme hızı test ediliyor...")
+        download_speed = st.download() / 1_000_000  # Convert to Mbps
+        
+        # Test upload speed
+        await message.edit_text("⬆️ Yükleme hızı test ediliyor...")
+        upload_speed = st.upload() / 1_000_000  # Convert to Mbps
+        
+        # Get ping
+        ping = st.results.ping
+        
+        # Format results
+        results = (
+            "🌐 İnternet Hız Testi Sonuçları:\n\n"
+            f"⬇️ İndirme: {download_speed:.2f} Mbps\n"
+            f"⬆️ Yükleme: {upload_speed:.2f} Mbps\n"
+            f"📡 Ping: {ping:.0f} ms\n\n"
+            f"🕒 Test Tarihi: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        )
+        
+        await message.edit_text(results)
+        
+    except Exception as e:
+        logger.error(f"Speed test error: {str(e)}")
+        await update.message.reply_text(
+            "❌ Hız testi yapılırken bir hata oluştu.\n"
+            "Lütfen daha sonra tekrar deneyin."
+        )
+
 def main():
     """Start the bot."""
     try:
@@ -803,6 +851,7 @@ def main():
             CommandHandler("song", search_song),
             CommandHandler("whois", whois_lookup),
             CommandHandler("yt", youtube_command),
+            CommandHandler("speedtest", speed_test),
             CallbackQueryHandler(youtube_button),
             MessageHandler(filters.VOICE | filters.AUDIO, recognize_music)
         ]
@@ -815,7 +864,7 @@ def main():
         logger.info("Bot configuration:")
         logger.info(f"- Maximum requests per minute: {MAX_REQUESTS_PER_MINUTE}")
         logger.info(f"- Maximum prompt length: {MAX_PROMPT_LENGTH}")
-        logger.info("- Available commands: start, dalle, flux, song, whois, yt")
+        logger.info("- Available commands: start, dalle, flux, song, whois, yt, speedtest")
         logger.info("- Music recognition enabled: Yes")
         logger.info("Bot started successfully!")
 
