@@ -16,7 +16,7 @@ import json
 from typing import Optional, Dict, Any, List
 import speedtest
 import torch
-from transformers import AutoModelForSeq2SeqGeneration, AutoTokenizer
+from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
 # Enable logging with file output
 logging.basicConfig(
@@ -72,7 +72,7 @@ chat_histories = defaultdict(list)
 # Initialize Flan-T5 model and tokenizer
 model_name = "google/flan-t5-large"
 tokenizer = AutoTokenizer.from_pretrained(model_name)
-model = AutoModelForSeq2SeqGeneration.from_pretrained(model_name)
+model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send a message when the command /start is issued."""
