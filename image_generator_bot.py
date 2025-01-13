@@ -70,7 +70,7 @@ user_flux_counts: Dict[int, Dict[str, int]] = defaultdict(lambda: {"count": 0, "
 chat_histories = defaultdict(list)
 
 # Initialize Flan-T5 model and tokenizer
-model_name = "google/flan-t5-large"
+model_name = "google/flan-t5-small"
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
 
@@ -751,7 +751,7 @@ async def recognize_music(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     message = "🎵 Müzik Bulundu!\n\n"
                     message += f"🎤 Sanatçı: {result.get('artist', 'Bilinmiyor')}\n"
                     message += f"🎼 Şarkı: {result.get('title', 'Bilinmiyor')}\n"
-                    message += f"💿 Albüm: {result.get('album', 'Bilinmiyor')}\n"
+                    message += f"�� Albüm: {result.get('album', 'Bilinmiyor')}\n"
                     message += f"📅 Yıl: {result.get('release_date', 'Bilinmiyor')}\n\n"
                     
                     # Add streaming links if available
