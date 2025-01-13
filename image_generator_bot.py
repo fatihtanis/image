@@ -902,8 +902,11 @@ async def upscale_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         
         # Run Upscale model with verified parameters
         output = replicate.run(
-            "nightmareai/real-esrgan:42fed1c4974146d4d2414e2be2c5277c7fcf05fcc3a73abf41610695738c1d7b",
-            input={"image": file_url}
+            "nightmareai/real-esrgan:f121d640bd286e1fdc67f9799164c1d5be36ff74576ee11c803ae5b665dd46aa",
+            input={
+                "image": file_url,
+                "scale": 2
+            }
         )
         
         if output and isinstance(output, list) and len(output) > 0:
