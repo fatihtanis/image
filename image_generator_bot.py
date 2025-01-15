@@ -15,6 +15,7 @@ import replicate
 import json
 from typing import Optional, Dict, Any, List
 import speedtest
+from requests_toolbelt.multipart.encoder import MultipartEncoder
 
 # Enable logging with file output
 logging.basicConfig(
@@ -31,13 +32,13 @@ logger = logging.getLogger(__name__)
 # Get the tokens from environment variables
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
-AUDD_API_TOKEN = os.getenv("AUDD_API_TOKEN")
+RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY")
 
 # Check all required tokens
 required_tokens = {
     "TELEGRAM_TOKEN": TELEGRAM_TOKEN,
     "REPLICATE_API_TOKEN": REPLICATE_API_TOKEN,
-    "AUDD_API_TOKEN": AUDD_API_TOKEN
+    "RAPIDAPI_KEY": RAPIDAPI_KEY
 }
 
 missing_tokens = [name for name, token in required_tokens.items() if not token]
@@ -701,7 +702,7 @@ async def whois_lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Bir hata oluştu. Lütfen tekrar deneyin.")
 
 async def recognize_music(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Recognize music from voice message or audio file."""
+    """Recognize music from voice message or audio file using Shazam API."""
     try:
         # Get the file
         if update.message.voice:
@@ -720,38 +721,64 @@ async def recognize_music(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Download the file
             file_bytes = await file.download_as_bytearray()
             
-            # Prepare the request
-            files = {
-                'file': ('audio.ogg', file_bytes),
-                'api_token': (None, AUDD_API_TOKEN),
-                'return': (None, 'spotify,apple_music,deezer')
+            # Convert to base64
+            encoded_file = base64.b64encode(file_bytes).decode('utf-8')
+            
+            # Prepare the request for Shazam API
+            url = "https://shazam.p.rapidapi.com/songs/detect"
+            
+            # Create multipart form data
+            mp_encoder = MultipartEncoder(
+                fields={
+                    'audio': ('audio.ogg', file_bytes, 'audio/ogg')
+                }
+            )
+            
+            headers = {
+                'X-RapidAPI-Key': RAPIDAPI_KEY,
+                'X-RapidAPI-Host': 'shazam.p.rapidapi.com',
+                'Content-Type': mp_encoder.content_type
             }
             
-            # Make request to AudD API
-            response = requests.post(AUDD_API_URL, files=files, timeout=30)
+            # Make request to Shazam API
+            response = requests.post(url, data=mp_encoder, headers=headers, timeout=30)
             
             if response.status_code == 200:
                 data = response.json()
                 
-                if data.get("status") == "success" and data.get("result"):
-                    result = data["result"]
+                if data.get("track"):
+                    track = data["track"]
                     
                     # Create response message
                     message = "🎵 Müzik Bulundu!\n\n"
-                    message += f"🎤 Sanatçı: {result.get('artist', 'Bilinmiyor')}\n"
-                    message += f"🎼 Şarkı: {result.get('title', 'Bilinmiyor')}\n"
-                    message += f"💿 Albüm: {result.get('album', 'Bilinmiyor')}\n"
-                    message += f"📅 Yıl: {result.get('release_date', 'Bilinmiyor')}\n\n"
+                    message += f"🎤 Sanatçı: {track.get('subtitle', 'Bilinmiyor')}\n"
+                    message += f"🎼 Şarkı: {track.get('title', 'Bilinmiyor')}\n"
+                    
+                    # Add genre if available
+                    if track.get("genres"):
+                        message += f"🎭 Tür: {track['genres'].get('primary', 'Bilinmiyor')}\n"
+                    
+                    # Add release date if available
+                    if track.get("releasedate"):
+                        message += f"📅 Yayın Tarihi: {track['releasedate']}\n"
                     
                     # Add streaming links if available
-                    if result.get("spotify"):
-                        message += f"Spotify: {result['spotify']['external_urls']['spotify']}\n"
-                    if result.get("apple_music"):
-                        message += f"Apple Music: {result['apple_music']['url']}\n"
-                    if result.get("deezer"):
-                        message += f"Deezer: {result['deezer']['link']}\n"
+                    if track.get("hub", {}).get("providers"):
+                        message += "\n🎧 Dinleme Linkleri:\n"
+                        for provider in track["hub"]["providers"]:
+                            if provider.get("type") == "SPOTIFY":
+                                message += f"Spotify: {provider['url']}\n"
+                            elif provider.get("type") == "APPLEMUSIC":
+                                message += f"Apple Music: {provider['url']}\n"
                     
-                    await update.message.reply_text(message)
+                    # Add album art if available
+                    if track.get("images", {}).get("coverart"):
+                        await update.message.reply_photo(
+                            photo=track["images"]["coverart"],
+                            caption=message
+                        )
+                    else:
+                        await update.message.reply_text(message)
                     
                 else:
                     await update.message.reply_text(
@@ -759,8 +786,11 @@ async def recognize_music(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         "Lütfen daha net bir kayıt göndermeyi deneyin."
                     )
             else:
+                error_message = "❌ Müzik tanıma servisi şu anda çalışmıyor."
+                if response.status_code == 429:
+                    error_message = "⚠️ Günlük API limitine ulaşıldı. Lütfen yarın tekrar deneyin."
                 await update.message.reply_text(
-                    "❌ Müzik tanıma servisi şu anda çalışmıyor.\n"
+                    f"{error_message}\n"
                     "Lütfen daha sonra tekrar deneyin."
                 )
                 
@@ -769,7 +799,7 @@ async def recognize_music(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "⏰ API yanıt vermedi, lütfen tekrar deneyin."
             )
         except requests.RequestException as e:
-            logger.error(f"Music recognition API error: {str(e)}")
+            logger.error(f"Shazam API request error: {str(e)}")
             await update.message.reply_text(
                 "🔌 Bağlantı hatası oluştu, lütfen tekrar deneyin."
             )
