@@ -720,6 +720,8 @@ async def recognize_music(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             # Download the file
             file_bytes = await file.download_as_bytearray()
+            # Convert bytearray to bytes
+            file_data = bytes(file_bytes)
             
             # Prepare the request for Shazam API
             url = "https://shazam-api6.p.rapidapi.com/shazam/recognize/"
@@ -727,7 +729,7 @@ async def recognize_music(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Create multipart form data
             mp_encoder = MultipartEncoder(
                 fields={
-                    'upload_file': ('audio.ogg', file_bytes, 'audio/ogg')
+                    'upload_file': ('audio.ogg', file_data, 'audio/ogg')
                 }
             )
             
