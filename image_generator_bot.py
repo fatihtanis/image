@@ -32,11 +32,13 @@ logger = logging.getLogger(__name__)
 # Get the tokens from environment variables
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
+AUDD_API_TOKEN = os.getenv("AUDD_API_TOKEN")
 
 # Check all required tokens
 required_tokens = {
     "TELEGRAM_TOKEN": TELEGRAM_TOKEN,
-    "REPLICATE_API_TOKEN": REPLICATE_API_TOKEN
+    "REPLICATE_API_TOKEN": REPLICATE_API_TOKEN,
+    "AUDD_API_TOKEN": AUDD_API_TOKEN
 }
 
 missing_tokens = [name for name, token in required_tokens.items() if not token]
@@ -700,7 +702,7 @@ async def whois_lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Bir hata oluştu. Lütfen tekrar deneyin.")
 
 async def recognize_music(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Recognize music from voice message or audio file using fingerprint matching."""
+    """Recognize music from voice message or audio file using Audd.io API."""
     try:
         # Get the file
         if update.message.voice:
@@ -721,55 +723,57 @@ async def recognize_music(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Convert bytearray to bytes
             file_data = bytes(file_bytes)
             
-            # Calculate audio fingerprint
-            import acoustid
-            import chromaprint
-            duration, fp_encoded = acoustid.fingerprint_file(file_data)
+            # Convert to base64
+            encoded_file = base64.b64encode(file_data).decode('utf-8')
             
-            # Search Deezer API
-            fingerprint = chromaprint.decode_fingerprint(fp_encoded)[0]
-            fingerprint_str = ','.join(map(str, fingerprint))
+            # Prepare the request for Audd.io API
+            url = "https://api.audd.io/recognize"
             
-            # Search Deezer API with the fingerprint
-            url = f"https://api.deezer.com/2.0/track/search"
-            params = {
-                'q': fingerprint_str[:100]  # Use first 100 points of fingerprint
+            payload = {
+                "audio": encoded_file,
+                "api_token": AUDD_API_TOKEN,
+                "return": "apple_music,spotify"
             }
             
-            response = requests.get(url, params=params, timeout=30)
-            logger.info(f"Deezer API Response Status: {response.status_code}")
-            logger.info(f"Deezer API Response: {response.text}")
+            headers = {
+                'content-type': 'application/json'
+            }
+            
+            # Make request to Audd.io API
+            response = requests.post(url, json=payload, headers=headers, timeout=30)
+            logger.info(f"Audd.io API Response Status: {response.status_code}")
+            logger.info(f"Audd.io API Response: {response.text}")
             
             if response.status_code == 200:
                 data = response.json()
                 
-                if data.get("data") and len(data["data"]) > 0:
-                    track = data["data"][0]
+                if data.get("status") == "success" and data.get("result"):
+                    result = data["result"]
                     
                     # Create response message
                     message = "🎵 Müzik Bulundu!\n\n"
-                    message += f"🎤 Sanatçı: {track.get('artist', {}).get('name', 'Bilinmiyor')}\n"
-                    message += f"🎼 Şarkı: {track.get('title', 'Bilinmiyor')}\n"
-                    message += f"💿 Albüm: {track.get('album', {}).get('title', 'Bilinmiyor')}\n"
+                    message += f"🎤 Sanatçı: {result.get('artist', 'Bilinmiyor')}\n"
+                    message += f"🎼 Şarkı: {result.get('title', 'Bilinmiyor')}\n"
+                    message += f"💿 Albüm: {result.get('album', 'Bilinmiyor')}\n"
                     
-                    # Add duration if available
-                    if track.get("duration"):
-                        minutes = track["duration"] // 60
-                        seconds = track["duration"] % 60
-                        message += f"⏱️ Süre: {minutes}:{seconds:02d}\n"
+                    # Add release date if available
+                    if result.get("release_date"):
+                        message += f"📅 Yayın Tarihi: {result['release_date']}\n"
                     
-                    # Add streaming links
+                    # Add streaming links if available
                     message += "\n🎧 Dinleme Linkleri:\n"
-                    message += f"Deezer: {track.get('link', 'Bulunamadı')}\n"
-                    
-                    # Add preview if available
-                    if track.get("preview"):
-                        message += f"\n🎵 30 saniyelik önizleme: {track['preview']}\n"
+                    if result.get("spotify"):
+                        spotify = result["spotify"]
+                        message += f"Spotify: {spotify.get('external_urls', {}).get('spotify', 'Bulunamadı')}\n"
+                    if result.get("apple_music"):
+                        apple = result["apple_music"]
+                        message += f"Apple Music: {apple.get('url', 'Bulunamadı')}\n"
                     
                     # Add album art if available
-                    if track.get("album", {}).get("cover_xl"):
+                    if result.get("spotify", {}).get("album", {}).get("images"):
+                        image_url = result["spotify"]["album"]["images"][0]["url"]
                         await update.message.reply_photo(
-                            photo=track["album"]["cover_xl"],
+                            photo=image_url,
                             caption=message
                         )
                     else:
@@ -785,8 +789,15 @@ async def recognize_music(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         "- Ses kalitesi iyi olmalı"
                     )
             else:
+                error_message = "❌ Müzik tanıma servisi şu anda çalışmıyor."
+                if response.status_code == 429:
+                    error_message = "⚠️ Günlük API limitine ulaşıldı. Lütfen yarın tekrar deneyin."
+                elif response.status_code == 401:
+                    error_message = "⚠️ API anahtarı geçersiz. Lütfen yöneticinize bildirin."
+                elif response.status_code == 403:
+                    error_message = "⚠️ Bu API'ye abone olmanız gerekiyor. Lütfen yöneticinize bildirin."
                 await update.message.reply_text(
-                    "❌ Müzik tanıma servisi şu anda çalışmıyor.\n"
+                    f"{error_message}\n"
                     "Lütfen daha sonra tekrar deneyin."
                 )
                 
@@ -795,7 +806,7 @@ async def recognize_music(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "⏰ API yanıt vermedi, lütfen tekrar deneyin."
             )
         except requests.RequestException as e:
-            logger.error(f"Deezer API request error: {str(e)}")
+            logger.error(f"Audd.io API request error: {str(e)}")
             await update.message.reply_text(
                 "🔌 Bağlantı hatası oluştu, lütfen tekrar deneyin."
             )
