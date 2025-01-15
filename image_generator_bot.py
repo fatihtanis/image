@@ -721,23 +721,32 @@ async def recognize_music(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Download the file
             file_bytes = await file.download_as_bytearray()
             
+            # Convert to base64
+            encoded_file = base64.b64encode(file_bytes).decode('utf-8')
+            
             # Prepare the request for Shazam API
-            url = "https://shazam.p.rapidapi.com/songs/v2/detect"
+            url = "https://shazam.p.rapidapi.com/songs/detect"
+            
+            payload = {
+                "data": encoded_file
+            }
             
             headers = {
+                'content-type': 'application/json',
                 'X-RapidAPI-Key': RAPIDAPI_KEY,
-                'X-RapidAPI-Host': 'shazam.p.rapidapi.com',
-                'Content-Type': 'application/octet-stream'
+                'X-RapidAPI-Host': 'shazam.p.rapidapi.com'
             }
             
             # Make request to Shazam API
-            response = requests.post(url, data=file_bytes, headers=headers, timeout=30)
+            response = requests.post(url, json=payload, headers=headers, timeout=30)
+            logger.info(f"Shazam API Response Status: {response.status_code}")
+            logger.info(f"Shazam API Response: {response.text}")
             
             if response.status_code == 200:
                 data = response.json()
                 
-                if data.get("matches") and len(data["matches"]) > 0:
-                    track = data["matches"][0]["track"]
+                if data.get("track"):
+                    track = data["track"]
                     
                     # Create response message
                     message = "🎵 Müzik Bulundu!\n\n"
@@ -779,6 +788,8 @@ async def recognize_music(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 error_message = "❌ Müzik tanıma servisi şu anda çalışmıyor."
                 if response.status_code == 429:
                     error_message = "⚠️ Günlük API limitine ulaşıldı. Lütfen yarın tekrar deneyin."
+                elif response.status_code == 401:
+                    error_message = "⚠️ API anahtarı geçersiz. Lütfen yöneticinize bildirin."
                 await update.message.reply_text(
                     f"{error_message}\n"
                     "Lütfen daha sonra tekrar deneyin."
