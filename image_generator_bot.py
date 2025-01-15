@@ -702,7 +702,7 @@ async def whois_lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Bir hata oluştu. Lütfen tekrar deneyin.")
 
 async def recognize_music(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Recognize music from voice message or audio file using Shazam API."""
+    """Recognize music from voice message or audio file using Audd.io API."""
     try:
         # Get the file
         if update.message.voice:
@@ -726,52 +726,54 @@ async def recognize_music(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Convert to base64
             encoded_file = base64.b64encode(file_data).decode('utf-8')
             
-            # Prepare the request for Shazam API
-            url = "https://shazam.p.rapidapi.com/songs/v2/detect"
+            # Prepare the request for Audd.io API
+            url = "https://api.audd.io/recognize"
             
-            headers = {
-                'content-type': 'text/plain',
-                'X-RapidAPI-Key': RAPIDAPI_KEY,
-                'X-RapidAPI-Host': 'shazam.p.rapidapi.com'
+            payload = {
+                "audio": encoded_file,
+                "api_token": RAPIDAPI_KEY,
+                "return": "apple_music,spotify"
             }
             
-            # Make request to Shazam API
-            response = requests.post(url, data=encoded_file, headers=headers, timeout=30)
-            logger.info(f"Shazam API Response Status: {response.status_code}")
-            logger.info(f"Shazam API Response: {response.text}")
+            headers = {
+                'content-type': 'application/json'
+            }
+            
+            # Make request to Audd.io API
+            response = requests.post(url, json=payload, headers=headers, timeout=30)
+            logger.info(f"Audd.io API Response Status: {response.status_code}")
+            logger.info(f"Audd.io API Response: {response.text}")
             
             if response.status_code == 200:
                 data = response.json()
                 
-                if data.get("matches") and len(data["matches"]) > 0:
-                    track = data["matches"][0]["track"]
+                if data.get("status") == "success" and data.get("result"):
+                    result = data["result"]
                     
                     # Create response message
                     message = "🎵 Müzik Bulundu!\n\n"
-                    message += f"🎤 Sanatçı: {track.get('subtitle', 'Bilinmiyor')}\n"
-                    message += f"🎼 Şarkı: {track.get('title', 'Bilinmiyor')}\n"
-                    
-                    # Add genre if available
-                    if track.get("genres"):
-                        message += f"🎭 Tür: {track['genres'].get('primary', 'Bilinmiyor')}\n"
+                    message += f"🎤 Sanatçı: {result.get('artist', 'Bilinmiyor')}\n"
+                    message += f"🎼 Şarkı: {result.get('title', 'Bilinmiyor')}\n"
+                    message += f"💿 Albüm: {result.get('album', 'Bilinmiyor')}\n"
                     
                     # Add release date if available
-                    if track.get("releasedate"):
-                        message += f"📅 Yayın Tarihi: {track['releasedate']}\n"
+                    if result.get("release_date"):
+                        message += f"📅 Yayın Tarihi: {result['release_date']}\n"
                     
                     # Add streaming links if available
-                    if track.get("hub", {}).get("providers"):
-                        message += "\n🎧 Dinleme Linkleri:\n"
-                        for provider in track["hub"]["providers"]:
-                            if provider.get("type") == "SPOTIFY":
-                                message += f"Spotify: {provider['url']}\n"
-                            elif provider.get("type") == "APPLEMUSIC":
-                                message += f"Apple Music: {provider['url']}\n"
+                    message += "\n🎧 Dinleme Linkleri:\n"
+                    if result.get("spotify"):
+                        spotify = result["spotify"]
+                        message += f"Spotify: {spotify.get('external_urls', {}).get('spotify', 'Bulunamadı')}\n"
+                    if result.get("apple_music"):
+                        apple = result["apple_music"]
+                        message += f"Apple Music: {apple.get('url', 'Bulunamadı')}\n"
                     
                     # Add album art if available
-                    if track.get("images", {}).get("coverart"):
+                    if result.get("spotify", {}).get("album", {}).get("images"):
+                        image_url = result["spotify"]["album"]["images"][0]["url"]
                         await update.message.reply_photo(
-                            photo=track["images"]["coverart"],
+                            photo=image_url,
                             caption=message
                         )
                     else:
@@ -780,7 +782,11 @@ async def recognize_music(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 else:
                     await update.message.reply_text(
                         "❌ Üzgünüm, bu müziği tanıyamadım.\n"
-                        "Lütfen daha net bir kayıt göndermeyi deneyin."
+                        "Lütfen daha net bir kayıt göndermeyi deneyin.\n"
+                        "İpuçları:\n"
+                        "- En az 10 saniye uzunluğunda olmalı\n"
+                        "- Arka planda gürültü olmamalı\n"
+                        "- Ses kalitesi iyi olmalı"
                     )
             else:
                 error_message = "❌ Müzik tanıma servisi şu anda çalışmıyor."
@@ -800,7 +806,7 @@ async def recognize_music(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "⏰ API yanıt vermedi, lütfen tekrar deneyin."
             )
         except requests.RequestException as e:
-            logger.error(f"Shazam API request error: {str(e)}")
+            logger.error(f"Audd.io API request error: {str(e)}")
             await update.message.reply_text(
                 "🔌 Bağlantı hatası oluştu, lütfen tekrar deneyin."
             )
