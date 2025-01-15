@@ -32,13 +32,13 @@ logger = logging.getLogger(__name__)
 # Get the tokens from environment variables
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
-RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY")
+AUDD_API_TOKEN = os.getenv("AUDD_API_TOKEN")
 
 # Check all required tokens
 required_tokens = {
     "TELEGRAM_TOKEN": TELEGRAM_TOKEN,
     "REPLICATE_API_TOKEN": REPLICATE_API_TOKEN,
-    "RAPIDAPI_KEY": RAPIDAPI_KEY
+    "AUDD_API_TOKEN": AUDD_API_TOKEN
 }
 
 missing_tokens = [name for name, token in required_tokens.items() if not token]
@@ -731,7 +731,7 @@ async def recognize_music(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             payload = {
                 "audio": encoded_file,
-                "api_token": RAPIDAPI_KEY,
+                "api_token": AUDD_API_TOKEN,
                 "return": "apple_music,spotify"
             }
             
