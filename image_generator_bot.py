@@ -723,32 +723,28 @@ async def recognize_music(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Convert bytearray to bytes
             file_data = bytes(file_bytes)
             
-            # Prepare the request for Shazam API
-            url = "https://shazam-api6.p.rapidapi.com/shazam/recognize/"
+            # Convert to base64
+            encoded_file = base64.b64encode(file_data).decode('utf-8')
             
-            # Create multipart form data
-            mp_encoder = MultipartEncoder(
-                fields={
-                    'upload_file': ('audio.ogg', file_data, 'audio/ogg')
-                }
-            )
+            # Prepare the request for Shazam API
+            url = "https://shazam.p.rapidapi.com/songs/v2/detect"
             
             headers = {
+                'content-type': 'text/plain',
                 'X-RapidAPI-Key': RAPIDAPI_KEY,
-                'X-RapidAPI-Host': 'shazam-api6.p.rapidapi.com',
-                'Content-Type': mp_encoder.content_type
+                'X-RapidAPI-Host': 'shazam.p.rapidapi.com'
             }
             
             # Make request to Shazam API
-            response = requests.post(url, data=mp_encoder, headers=headers, timeout=30)
+            response = requests.post(url, data=encoded_file, headers=headers, timeout=30)
             logger.info(f"Shazam API Response Status: {response.status_code}")
             logger.info(f"Shazam API Response: {response.text}")
             
             if response.status_code == 200:
                 data = response.json()
                 
-                if data.get("result") and data["result"].get("track"):
-                    track = data["result"]["track"]
+                if data.get("matches") and len(data["matches"]) > 0:
+                    track = data["matches"][0]["track"]
                     
                     # Create response message
                     message = "🎵 Müzik Bulundu!\n\n"
@@ -792,6 +788,8 @@ async def recognize_music(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     error_message = "⚠️ Günlük API limitine ulaşıldı. Lütfen yarın tekrar deneyin."
                 elif response.status_code == 401:
                     error_message = "⚠️ API anahtarı geçersiz. Lütfen yöneticinize bildirin."
+                elif response.status_code == 403:
+                    error_message = "⚠️ Bu API'ye abone olmanız gerekiyor. Lütfen yöneticinize bildirin."
                 await update.message.reply_text(
                     f"{error_message}\n"
                     "Lütfen daha sonra tekrar deneyin."
