@@ -721,32 +721,32 @@ async def recognize_music(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Download the file
             file_bytes = await file.download_as_bytearray()
             
-            # Convert to base64
-            encoded_file = base64.b64encode(file_bytes).decode('utf-8')
-            
             # Prepare the request for Shazam API
-            url = "https://shazam.p.rapidapi.com/songs/detect"
+            url = "https://shazam-api6.p.rapidapi.com/shazam/recognize/"
             
-            payload = {
-                "data": encoded_file
-            }
+            # Create multipart form data
+            mp_encoder = MultipartEncoder(
+                fields={
+                    'upload_file': ('audio.ogg', file_bytes, 'audio/ogg')
+                }
+            )
             
             headers = {
-                'content-type': 'application/json',
                 'X-RapidAPI-Key': RAPIDAPI_KEY,
-                'X-RapidAPI-Host': 'shazam.p.rapidapi.com'
+                'X-RapidAPI-Host': 'shazam-api6.p.rapidapi.com',
+                'Content-Type': mp_encoder.content_type
             }
             
             # Make request to Shazam API
-            response = requests.post(url, json=payload, headers=headers, timeout=30)
+            response = requests.post(url, data=mp_encoder, headers=headers, timeout=30)
             logger.info(f"Shazam API Response Status: {response.status_code}")
             logger.info(f"Shazam API Response: {response.text}")
             
             if response.status_code == 200:
                 data = response.json()
                 
-                if data.get("track"):
-                    track = data["track"]
+                if data.get("result") and data["result"].get("track"):
+                    track = data["result"]["track"]
                     
                     # Create response message
                     message = "🎵 Müzik Bulundu!\n\n"
