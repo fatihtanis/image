@@ -33,12 +33,14 @@ logger = logging.getLogger(__name__)
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
 AUDD_API_TOKEN = os.getenv("AUDD_API_TOKEN")
+TMDB_API_KEY = os.getenv("TMDB_API_KEY")
 
 # Check all required tokens
 required_tokens = {
     "TELEGRAM_TOKEN": TELEGRAM_TOKEN,
     "REPLICATE_API_TOKEN": REPLICATE_API_TOKEN,
-    "AUDD_API_TOKEN": AUDD_API_TOKEN
+    "AUDD_API_TOKEN": AUDD_API_TOKEN,
+    "TMDB_API_KEY": TMDB_API_KEY
 }
 
 missing_tokens = [name for name, token in required_tokens.items() if not token]
@@ -54,6 +56,29 @@ MAX_PROMPT_LENGTH = 200
 MUSIC_API_BASE = "https://jiosaavn-api-codyandersan.vercel.app/search/all"
 WHOIS_API_BASE = "https://rdap.org/domain/"
 AUDD_API_URL = "https://api.audd.io/"
+TMDB_API_BASE = "https://api.themoviedb.org/3"
+
+# Film türleri
+MOVIE_GENRES = {
+    "aksiyon": 28,
+    "macera": 12,
+    "animasyon": 16,
+    "komedi": 35,
+    "suç": 80,
+    "belgesel": 99,
+    "dram": 18,
+    "aile": 10751,
+    "fantastik": 14,
+    "tarih": 36,
+    "korku": 27,
+    "müzik": 10402,
+    "gizem": 9648,
+    "romantik": 10749,
+    "bilim kurgu": 878,
+    "gerilim": 53,
+    "savaş": 10752,
+    "western": 37
+}
 
 # YouTube video info cache
 youtube_cache: Dict[str, Dict[str, Any]] = {}
@@ -974,6 +999,227 @@ async def upscale_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         logging.error(f"Upscale error: {str(e)}")
         await update.message.reply_text("❌ Bir hata oluştu. Lütfen daha sonra tekrar deneyin.")
 
+async def genre_movies(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Get movie recommendations by genre."""
+    try:
+        if not context.args:
+            # Create genre list message
+            genres_text = "🎬 Film Türleri:\n\n"
+            for genre in sorted(MOVIE_GENRES.keys()):
+                genres_text += f"• {genre.title()}\n"
+            
+            await update.message.reply_text(
+                f"{genres_text}\n"
+                "Kullanım: /genre korku"
+            )
+            return
+        
+        # Get genre from args
+        genre = ' '.join(context.args).lower()
+        
+        if genre not in MOVIE_GENRES:
+            await update.message.reply_text(
+                "❌ Geçersiz film türü!\n"
+                "Doğru türleri görmek için /genre komutunu kullanın."
+            )
+            return
+        
+        # Send processing message
+        processing_message = await update.message.reply_text(
+            f"🔍 {genre.title()} türünde filmler aranıyor..."
+        )
+        
+        try:
+            # Make request to TMDB API
+            url = f"{TMDB_API_BASE}/discover/movie"
+            params = {
+                'api_key': TMDB_API_KEY,
+                'language': 'tr-TR',
+                'sort_by': 'popularity.desc',
+                'with_genres': MOVIE_GENRES[genre],
+                'page': 1
+            }
+            
+            response = requests.get(url, params=params, timeout=30)
+            
+            if response.status_code == 200:
+                data = response.json()
+                movies = data.get('results', [])[:5]  # Get top 5 movies
+                
+                if movies:
+                    for movie in movies:
+                        # Get movie details
+                        title = movie.get('title', 'Bilinmiyor')
+                        overview = movie.get('overview', 'Açıklama yok')
+                        release_date = movie.get('release_date', 'Bilinmiyor')
+                        vote_average = movie.get('vote_average', 0)
+                        poster_path = movie.get('poster_path')
+                        
+                        # Create message
+                        message = (
+                            f"🎬 {title}\n\n"
+                            f"📅 Yayın Tarihi: {release_date}\n"
+                            f"⭐ TMDB Puanı: {vote_average}/10\n\n"
+                            f"📝 Özet:\n{overview}\n\n"
+                            f"🎯 Tür: {genre.title()}"
+                        )
+                        
+                        # Send movie info with poster if available
+                        if poster_path:
+                            poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}"
+                            await update.message.reply_photo(
+                                photo=poster_url,
+                                caption=message
+                            )
+                        else:
+                            await update.message.reply_text(message)
+                else:
+                    await update.message.reply_text(
+                        f"❌ {genre.title()} türünde film bulunamadı."
+                    )
+            else:
+                await update.message.reply_text(
+                    "❌ Film bilgileri alınamadı.\n"
+                    "Lütfen daha sonra tekrar deneyin."
+                )
+                
+        except requests.Timeout:
+            await update.message.reply_text(
+                "⏰ API yanıt vermedi, lütfen tekrar deneyin."
+            )
+        except requests.RequestException as e:
+            logger.error(f"TMDB API request error: {str(e)}")
+            await update.message.reply_text(
+                "🔌 Bağlantı hatası oluştu, lütfen tekrar deneyin."
+            )
+        
+        finally:
+            await processing_message.delete()
+            
+    except Exception as e:
+        logger.error(f"Genre movies error: {str(e)}")
+        await update.message.reply_text("Bir hata oluştu. Lütfen tekrar deneyin.")
+
+async def similar_movies(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Get similar movie recommendations."""
+    try:
+        if not context.args:
+            await update.message.reply_text(
+                "Lütfen bir film adı girin.\n"
+                "Örnek: /similar Matrix"
+            )
+            return
+        
+        # Get movie name from args
+        movie_name = ' '.join(context.args)
+        
+        # Send processing message
+        processing_message = await update.message.reply_text(
+            f"🔍 '{movie_name}' filmine benzer filmler aranıyor..."
+        )
+        
+        try:
+            # First, search for the movie
+            search_url = f"{TMDB_API_BASE}/search/movie"
+            search_params = {
+                'api_key': TMDB_API_KEY,
+                'language': 'tr-TR',
+                'query': movie_name
+            }
+            
+            search_response = requests.get(search_url, params=search_params, timeout=30)
+            
+            if search_response.status_code == 200:
+                search_data = search_response.json()
+                movies = search_data.get('results', [])
+                
+                if movies:
+                    # Get first movie's ID
+                    movie_id = movies[0]['id']
+                    
+                    # Get similar movies
+                    similar_url = f"{TMDB_API_BASE}/movie/{movie_id}/similar"
+                    similar_params = {
+                        'api_key': TMDB_API_KEY,
+                        'language': 'tr-TR'
+                    }
+                    
+                    similar_response = requests.get(similar_url, params=similar_params, timeout=30)
+                    
+                    if similar_response.status_code == 200:
+                        similar_data = similar_response.json()
+                        similar_movies = similar_data.get('results', [])[:5]  # Get top 5 similar movies
+                        
+                        if similar_movies:
+                            # Send original movie info first
+                            original_movie = movies[0]
+                            await update.message.reply_text(
+                                f"🎯 Aranan Film: {original_movie.get('title')}\n"
+                                f"📅 Yayın Tarihi: {original_movie.get('release_date')}\n"
+                                f"⭐ TMDB Puanı: {original_movie.get('vote_average')}/10\n\n"
+                                "🎬 Benzer Filmler:"
+                            )
+                            
+                            # Send similar movies
+                            for movie in similar_movies:
+                                title = movie.get('title', 'Bilinmiyor')
+                                overview = movie.get('overview', 'Açıklama yok')
+                                release_date = movie.get('release_date', 'Bilinmiyor')
+                                vote_average = movie.get('vote_average', 0)
+                                poster_path = movie.get('poster_path')
+                                
+                                message = (
+                                    f"🎬 {title}\n\n"
+                                    f"📅 Yayın Tarihi: {release_date}\n"
+                                    f"⭐ TMDB Puanı: {vote_average}/10\n\n"
+                                    f"📝 Özet:\n{overview}"
+                                )
+                                
+                                if poster_path:
+                                    poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}"
+                                    await update.message.reply_photo(
+                                        photo=poster_url,
+                                        caption=message
+                                    )
+                                else:
+                                    await update.message.reply_text(message)
+                        else:
+                            await update.message.reply_text(
+                                f"❌ '{movie_name}' filmine benzer film bulunamadı."
+                            )
+                    else:
+                        await update.message.reply_text(
+                            "❌ Benzer filmler alınamadı.\n"
+                            "Lütfen daha sonra tekrar deneyin."
+                        )
+                else:
+                    await update.message.reply_text(
+                        f"❌ '{movie_name}' filmi bulunamadı.\n"
+                        "Lütfen film adını kontrol edip tekrar deneyin."
+                    )
+            else:
+                await update.message.reply_text(
+                    "❌ Film araması yapılamadı.\n"
+                    "Lütfen daha sonra tekrar deneyin."
+                )
+                
+        except requests.Timeout:
+            await update.message.reply_text(
+                "⏰ API yanıt vermedi, lütfen tekrar deneyin."
+            )
+        except requests.RequestException as e:
+            logger.error(f"TMDB API request error: {str(e)}")
+            await update.message.reply_text(
+                "🔌 Bağlantı hatası oluştu, lütfen tekrar deneyin."
+            )
+        
+        finally:
+            await processing_message.delete()
+            
+    except Exception as e:
+        logger.error(f"Similar movies error: {str(e)}")
+        await update.message.reply_text("Bir hata oluştu. Lütfen tekrar deneyin.")
+
 def main():
     """Start the bot."""
     try:
@@ -990,6 +1236,8 @@ def main():
             CommandHandler("yt", youtube_command),
             CommandHandler("speedtest", speed_test),
             CommandHandler("upscale", upscale_image),
+            CommandHandler("genre", genre_movies),
+            CommandHandler("similar", similar_movies),
             CallbackQueryHandler(youtube_button),
             MessageHandler(filters.VOICE | filters.AUDIO, recognize_music)
         ]
@@ -1002,7 +1250,7 @@ def main():
         logger.info("Bot configuration:")
         logger.info(f"- Maximum requests per minute: {MAX_REQUESTS_PER_MINUTE}")
         logger.info(f"- Maximum prompt length: {MAX_PROMPT_LENGTH}")
-        logger.info("- Available commands: start, dalle, flux, song, whois, yt, speedtest, upscale")
+        logger.info("- Available commands: start, dalle, flux, song, whois, yt, speedtest, upscale, genre, similar")
         logger.info("- Music recognition enabled: Yes")
         logger.info("Bot started successfully!")
 
