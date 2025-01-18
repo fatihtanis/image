@@ -1348,52 +1348,52 @@ async def generate_eye_image(update: Update, context: ContextTypes.DEFAULT_TYPE)
             
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+                'Accept': '*/*',
                 'Accept-Encoding': 'gzip, deflate, br',
-                'Connection': 'keep-alive'
+                'Connection': 'keep-alive',
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache'
             }
             
-            # Get redirect URL
+            # Create session with retry strategy
             session = requests.Session()
-            response = session.get(initial_url, headers=headers, timeout=60, verify=False, allow_redirects=False)
+            session.trust_env = False
+            
+            # Get initial response
+            response = session.get(initial_url, headers=headers, timeout=30, verify=False)
             logger.info(f"Initial API Response Status: {response.status_code}")
             
-            if response.status_code in [301, 302] and 'Location' in response.headers:
-                # Get the image from redirect URL
-                image_url = response.headers['Location']
-                logger.info(f"Redirect URL: {image_url}")
-                
-                # Follow redirect and get image
-                image_response = session.get(image_url, headers=headers, timeout=60, verify=False)
-                
-                if image_response.status_code == 200 and image_response.content:
-                    # Verify it's an image
-                    content_type = image_response.headers.get('Content-Type', '')
-                    if 'image' in content_type.lower():
-                        # Send the image
-                        await context.bot.send_photo(
-                            chat_id=update.effective_chat.id,
-                            photo=image_response.content,
-                            caption=f"🎨 Prompt: {prompt}"
-                        )
-                    else:
-                        logger.error(f"Invalid content type: {content_type}")
-                        await update.message.reply_text(
-                            "❌ Geçersiz resim formatı.\n"
-                            "Lütfen tekrar deneyin."
-                        )
-                else:
-                    logger.error(f"Image download error: Status {image_response.status_code}, Content-Type: {image_response.headers.get('Content-Type')}")
-                    await update.message.reply_text(
-                        "❌ Resim indirilemedi.\n"
-                        "Lütfen tekrar deneyin."
-                    )
-            else:
-                logger.error(f"API redirect error: Status {response.status_code}, Headers: {dict(response.headers)}")
-                await update.message.reply_text(
-                    "❌ Resim oluşturulamadı.\n"
-                    "Lütfen daha sonra tekrar deneyin."
-                )
+            # Extract image URL from response content
+            if response.status_code == 200:
+                try:
+                    # Try to find URL in response content
+                    content = response.text
+                    matches = re.findall(r'https://tmpfiles\.org/dl/\d+/[^"\'<>\s]+', content)
+                    
+                    if matches:
+                        image_url = matches[0]
+                        logger.info(f"Found image URL: {image_url}")
+                        
+                        # Get the image
+                        image_response = session.get(image_url, headers=headers, timeout=30, verify=False)
+                        
+                        if image_response.status_code == 200 and image_response.content:
+                            # Send the image
+                            await context.bot.send_photo(
+                                chat_id=update.effective_chat.id,
+                                photo=image_response.content,
+                                caption=f"🎨 Prompt: {prompt}"
+                            )
+                            return
+                        
+                except Exception as e:
+                    logger.error(f"Error extracting image URL: {str(e)}")
+            
+            # If we get here, something went wrong
+            await update.message.reply_text(
+                "❌ Resim oluşturulamadı.\n"
+                "Lütfen tekrar deneyin."
+            )
                 
         except requests.Timeout:
             logger.error("Request timeout")
