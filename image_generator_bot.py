@@ -1251,13 +1251,13 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         
         try:
-            # Make request to Gemini API
+            # Make request to Gemini API with SSL verification disabled
             params = {
                 'prompt': user_message,
                 'i': '1'
             }
             
-            response = requests.get(GEMINI_API_BASE, params=params, timeout=30)
+            response = requests.get(GEMINI_API_BASE, params=params, timeout=30, verify=False)
             logger.info(f"Gemini API Response Status: {response.status_code}")
             
             if response.status_code == 200:
