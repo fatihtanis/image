@@ -57,6 +57,7 @@ MUSIC_API_BASE = "https://jiosaavn-api-codyandersan.vercel.app/search/all"
 WHOIS_API_BASE = "https://rdap.org/domain/"
 AUDD_API_URL = "https://api.audd.io/"
 TMDB_API_BASE = "https://api.themoviedb.org/3"
+GEMINI_API_BASE = "https://www.lastroom.ct.ws/gemini-pro"
 
 # Film türleri
 MOVIE_GENRES = {
@@ -107,6 +108,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f'2. Müzik tanımak için: Ses kaydı veya müzik dosyası gönderin\n\n'
             f'📥 İndirme Komutları:\n'
             f'1. YouTube indirmek için: /yt [video linki]\n\n'
+            f'🤖 AI Komutları:\n'
+            f'1. Gemini Pro ile sohbet: /chat [mesaj]\n\n'
             f'🛠️ Diğer Komutlar:\n'
             f'1. Domain sorgulamak için: /whois [domain.com]\n'
             f'2. İnternet hız testi: /speedtest\n\n'
@@ -115,6 +118,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f'• /genre korku 🎬\n'
             f'• /similar Matrix 🎬\n'
             f'• /song Hadise Aşk Kaç Beden Giyer 🎵\n'
+            f'• /chat merhaba nasılsın? 🤖\n'
             f'• /whois google.com 🔍\n'
             f'• /yt https://youtube.com/watch?v=... 📥\n\n'
             f'⚠️ Limitler:\n'
@@ -1226,6 +1230,74 @@ async def similar_movies(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Similar movies error: {str(e)}")
         await update.message.reply_text("Bir hata oluştu. Lütfen tekrar deneyin.")
 
+async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Chat with Gemini Pro AI."""
+    try:
+        # Check if user provided text
+        if not context.args:
+            await update.message.reply_text(
+                "Lütfen bir mesaj yazın.\n"
+                "Örnek: /chat merhaba nasılsın?"
+            )
+            return
+        
+        # Get the message
+        user_message = ' '.join(context.args)
+        
+        # Send typing action
+        await context.bot.send_chat_action(
+            chat_id=update.effective_chat.id,
+            action="typing"
+        )
+        
+        try:
+            # Make request to Gemini API
+            params = {
+                'prompt': user_message,
+                'i': '1'
+            }
+            
+            response = requests.get(GEMINI_API_BASE, params=params, timeout=30)
+            logger.info(f"Gemini API Response Status: {response.status_code}")
+            
+            if response.status_code == 200:
+                # Get AI response
+                ai_response = response.text.strip()
+                
+                if ai_response:
+                    await update.message.reply_text(
+                        f"🤖 {ai_response}",
+                        parse_mode=None
+                    )
+                else:
+                    await update.message.reply_text(
+                        "❌ AI yanıt vermedi. Lütfen tekrar deneyin."
+                    )
+            else:
+                await update.message.reply_text(
+                    "❌ AI servisi şu anda çalışmıyor.\n"
+                    "Lütfen daha sonra tekrar deneyin."
+                )
+                
+        except requests.Timeout:
+            await update.message.reply_text(
+                "⏰ AI yanıt vermedi, lütfen tekrar deneyin."
+            )
+        except requests.RequestException as e:
+            logger.error(f"Gemini API request error: {str(e)}")
+            await update.message.reply_text(
+                "🔌 Bağlantı hatası oluştu, lütfen tekrar deneyin."
+            )
+        except Exception as e:
+            logger.error(f"Chat error: {str(e)}")
+            await update.message.reply_text(
+                "⚠️ Beklenmeyen bir hata oluştu, lütfen tekrar deneyin."
+            )
+            
+    except Exception as e:
+        logger.error(f"Chat command error: {str(e)}")
+        await update.message.reply_text("Bir hata oluştu. Lütfen tekrar deneyin.")
+
 def main():
     """Start the bot."""
     try:
@@ -1244,6 +1316,7 @@ def main():
             CommandHandler("upscale", upscale_image),
             CommandHandler("genre", genre_movies),
             CommandHandler("similar", similar_movies),
+            CommandHandler("chat", chat),
             CallbackQueryHandler(youtube_button),
             MessageHandler(filters.VOICE | filters.AUDIO, recognize_music)
         ]
@@ -1256,7 +1329,7 @@ def main():
         logger.info("Bot configuration:")
         logger.info(f"- Maximum requests per minute: {MAX_REQUESTS_PER_MINUTE}")
         logger.info(f"- Maximum prompt length: {MAX_PROMPT_LENGTH}")
-        logger.info("- Available commands: start, dalle, flux, song, whois, yt, speedtest, upscale, genre, similar")
+        logger.info("- Available commands: start, dalle, flux, song, whois, yt, speedtest, upscale, genre, similar, chat")
         logger.info("- Music recognition enabled: Yes")
         logger.info("Bot started successfully!")
 
