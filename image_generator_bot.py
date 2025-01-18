@@ -58,6 +58,7 @@ WHOIS_API_BASE = "https://rdap.org/domain/"
 AUDD_API_URL = "https://api.audd.io/"
 TMDB_API_BASE = "https://api.themoviedb.org/3"
 GEMINI_API_BASE = "https://www.lastroom.ct.ws/gemini-pro"
+AI_IMAGE_API_BASE = "https://www.lastroom.ct.ws/ai-image"
 
 # Film türleri
 MOVIE_GENRES = {
@@ -99,7 +100,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f'🎨 Resim Komutları:\n'
             f'1. DALL-E 3 ile resim: /dalle [açıklama]\n'
             f'2. Flux ile resim: /flux [açıklama]\n'
-            f'3. Resim iyileştirme: /upscale (resmi yanıtlayarak)\n\n'
+            f'3. Göz AI ile resim: /goz [açıklama]\n'
+            f'4. Resim iyileştirme: /upscale (resmi yanıtlayarak)\n\n'
             f'🎬 Film Komutları:\n'
             f'1. Film türüne göre öneriler: /genre [tür]\n'
             f'2. Benzer film önerileri: /similar [film adı]\n\n'
@@ -115,6 +117,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f'2. İnternet hız testi: /speedtest\n\n'
             f'📝 Örnekler:\n'
             f'• /dalle bir adam denizde yüzüyor 🎨\n'
+            f'• /goz güzel bir manzara 🎨\n'
             f'• /genre korku 🎬\n'
             f'• /similar Matrix 🎬\n'
             f'• /song Hadise Aşk Kaç Beden Giyer 🎵\n'
@@ -1298,6 +1301,80 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Chat command error: {str(e)}")
         await update.message.reply_text("Bir hata oluştu. Lütfen tekrar deneyin.")
 
+async def generate_eye_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Generate an image using the Eye AI model."""
+    try:
+        # Check if user provided text
+        if not context.args:
+            await update.message.reply_text(
+                "Lütfen bir açıklama yazın.\n"
+                "Örnek: /goz güzel bir manzara"
+            )
+            return
+
+        # Get the prompt
+        prompt = ' '.join(context.args)
+
+        # Check rate limit
+        user_id = update.effective_user.id
+        current_time = datetime.now()
+        USER_RATES[user_id] = [time for time in USER_RATES[user_id] 
+                              if current_time - time < timedelta(minutes=1)]
+        
+        if len(USER_RATES[user_id]) >= MAX_REQUESTS_PER_MINUTE:
+            await update.message.reply_text(
+                f"⚠️ Dakikada maksimum {MAX_REQUESTS_PER_MINUTE} resim oluşturabilirsiniz.\n"
+                "Lütfen biraz bekleyin."
+            )
+            return
+
+        # Add current request time
+        USER_RATES[user_id].append(current_time)
+
+        # Send processing message
+        processing_message = await update.message.reply_text(
+            "🎨 Resim oluşturuluyor...\n"
+            "Bu işlem biraz zaman alabilir."
+        )
+
+        try:
+            # Make request to AI Image API
+            params = {
+                'prompt': prompt
+            }
+            
+            response = requests.get(AI_IMAGE_API_BASE, params=params, timeout=120, verify=False)
+            logger.info(f"AI Image API Response Status: {response.status_code}")
+            
+            if response.status_code == 200:
+                # Send the image
+                await context.bot.send_photo(
+                    chat_id=update.effective_chat.id,
+                    photo=response.content,
+                    caption=f"🎨 Prompt: {prompt}"
+                )
+            else:
+                await update.message.reply_text(
+                    "❌ Resim oluşturulamadı.\n"
+                    "Lütfen daha sonra tekrar deneyin."
+                )
+                
+        except requests.Timeout:
+            await update.message.reply_text(
+                "⏰ Zaman aşımı oluştu, lütfen tekrar deneyin."
+            )
+        except requests.RequestException as e:
+            logger.error(f"AI Image API request error: {str(e)}")
+            await update.message.reply_text(
+                "🔌 Bağlantı hatası oluştu, lütfen tekrar deneyin."
+            )
+        finally:
+            await processing_message.delete()
+            
+    except Exception as e:
+        logger.error(f"Eye image generation error: {str(e)}")
+        await update.message.reply_text("Bir hata oluştu. Lütfen tekrar deneyin.")
+
 def main():
     """Start the bot."""
     try:
@@ -1317,6 +1394,7 @@ def main():
             CommandHandler("genre", genre_movies),
             CommandHandler("similar", similar_movies),
             CommandHandler("chat", chat),
+            CommandHandler("goz", generate_eye_image),
             CallbackQueryHandler(youtube_button),
             MessageHandler(filters.VOICE | filters.AUDIO, recognize_music)
         ]
