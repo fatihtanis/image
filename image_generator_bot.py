@@ -1342,7 +1342,7 @@ async def generate_eye_image(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
 
         try:
-            # Make request to AI Image API
+            # First request to get redirect URL
             encoded_prompt = urllib.parse.quote(prompt)
             url = f"{AI_IMAGE_API_BASE}{encoded_prompt}"
             
@@ -1350,18 +1350,32 @@ async def generate_eye_image(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             }
             
-            response = requests.get(url, headers=headers, timeout=120, verify=False)
-            logger.info(f"AI Image API Response Status: {response.status_code}")
+            # Get redirect URL
+            response = requests.get(url, headers=headers, timeout=120, verify=False, allow_redirects=False)
+            logger.info(f"Initial API Response Status: {response.status_code}")
             
-            if response.status_code == 200 and response.content:
-                # Send the image
-                await context.bot.send_photo(
-                    chat_id=update.effective_chat.id,
-                    photo=response.content,
-                    caption=f"🎨 Prompt: {prompt}"
-                )
+            if response.status_code in [301, 302] and 'Location' in response.headers:
+                # Get the image from redirect URL
+                image_url = response.headers['Location']
+                logger.info(f"Redirect URL: {image_url}")
+                
+                image_response = requests.get(image_url, headers=headers, timeout=120, verify=False)
+                
+                if image_response.status_code == 200 and image_response.content:
+                    # Send the image
+                    await context.bot.send_photo(
+                        chat_id=update.effective_chat.id,
+                        photo=image_response.content,
+                        caption=f"🎨 Prompt: {prompt}"
+                    )
+                else:
+                    logger.error(f"Image download error: Status {image_response.status_code}")
+                    await update.message.reply_text(
+                        "❌ Resim indirilemedi.\n"
+                        "Lütfen tekrar deneyin."
+                    )
             else:
-                logger.error(f"AI Image API error: Status {response.status_code}, Content length: {len(response.content) if response.content else 0}")
+                logger.error(f"API redirect error: Status {response.status_code}")
                 await update.message.reply_text(
                     "❌ Resim oluşturulamadı.\n"
                     "Lütfen daha sonra tekrar deneyin."
