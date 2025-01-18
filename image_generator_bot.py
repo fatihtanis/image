@@ -62,7 +62,7 @@ WHOIS_API_BASE = "https://rdap.org/domain/"
 AUDD_API_URL = "https://api.audd.io/"
 TMDB_API_BASE = "https://api.themoviedb.org/3"
 GEMINI_API_BASE = "https://www.lastroom.ct.ws/gemini-pro"
-AI_IMAGE_API_BASE = "https://www.lastroom.ct.ws/ai-image/?prompt="
+AI_IMAGE_API_BASE = "https://lastroom.ct.ws/ai-image/?prompt="
 
 # Film türleri
 MOVIE_GENRES = {
@@ -1346,10 +1346,14 @@ async def generate_eye_image(update: Update, context: ContextTypes.DEFAULT_TYPE)
             encoded_prompt = urllib.parse.quote(prompt)
             url = f"{AI_IMAGE_API_BASE}{encoded_prompt}"
             
-            response = requests.get(url, timeout=120, verify=False)
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
+            
+            response = requests.get(url, headers=headers, timeout=120, verify=False)
             logger.info(f"AI Image API Response Status: {response.status_code}")
             
-            if response.status_code == 200:
+            if response.status_code == 200 and response.content:
                 # Send the image
                 await context.bot.send_photo(
                     chat_id=update.effective_chat.id,
@@ -1357,6 +1361,7 @@ async def generate_eye_image(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     caption=f"🎨 Prompt: {prompt}"
                 )
             else:
+                logger.error(f"AI Image API error: Status {response.status_code}, Content length: {len(response.content) if response.content else 0}")
                 await update.message.reply_text(
                     "❌ Resim oluşturulamadı.\n"
                     "Lütfen daha sonra tekrar deneyin."
