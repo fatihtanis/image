@@ -16,6 +16,7 @@ import json
 from typing import Optional, Dict, Any, List
 import speedtest
 from requests_toolbelt.multipart.encoder import MultipartEncoder
+import urllib3
 
 # Enable logging with file output
 logging.basicConfig(
@@ -28,6 +29,9 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+# Suppress SSL warnings
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Get the tokens from environment variables
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -58,7 +62,7 @@ WHOIS_API_BASE = "https://rdap.org/domain/"
 AUDD_API_URL = "https://api.audd.io/"
 TMDB_API_BASE = "https://api.themoviedb.org/3"
 GEMINI_API_BASE = "https://www.lastroom.ct.ws/gemini-pro"
-AI_IMAGE_API_BASE = "https://www.lastroom.ct.ws/ai-image"
+AI_IMAGE_API_BASE = "https://www.lastroom.ct.ws/ai-image/?prompt="
 
 # Film türleri
 MOVIE_GENRES = {
@@ -1339,11 +1343,10 @@ async def generate_eye_image(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
         try:
             # Make request to AI Image API
-            params = {
-                'prompt': prompt
-            }
+            encoded_prompt = urllib.parse.quote(prompt)
+            url = f"{AI_IMAGE_API_BASE}{encoded_prompt}"
             
-            response = requests.get(AI_IMAGE_API_BASE, params=params, timeout=120, verify=False)
+            response = requests.get(url, timeout=120, verify=False)
             logger.info(f"AI Image API Response Status: {response.status_code}")
             
             if response.status_code == 200:
