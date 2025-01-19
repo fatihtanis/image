@@ -16,7 +16,7 @@ import json
 from typing import Optional, Dict, Any, List
 import speedtest
 from requests_toolbelt.multipart.encoder import MultipartEncoder
-import urllib3
+from lastroom_api import LastroomAPI
 
 # Enable logging with file output
 logging.basicConfig(
@@ -29,9 +29,6 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
-
-# Suppress SSL warnings
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Get the tokens from environment variables
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -61,8 +58,6 @@ MUSIC_API_BASE = "https://jiosaavn-api-codyandersan.vercel.app/search/all"
 WHOIS_API_BASE = "https://rdap.org/domain/"
 AUDD_API_URL = "https://api.audd.io/"
 TMDB_API_BASE = "https://api.themoviedb.org/3"
-GEMINI_API_BASE = "https://www.lastroom.ct.ws/gemini-pro"
-AI_IMAGE_API_BASE = "https://lastroom.ct.ws/ai-image/?prompt="
 
 # Film türleri
 MOVIE_GENRES = {
@@ -95,6 +90,9 @@ FLUX_DAILY_LIMIT = 3
 user_upscale_counts: Dict[int, Dict[str, int]] = defaultdict(lambda: {"count": 0, "reset_date": ""})
 user_flux_counts: Dict[int, Dict[str, int]] = defaultdict(lambda: {"count": 0, "reset_date": ""})
 
+# Lastroom API instance
+lastroom_api = LastroomAPI()
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send a message when the command /start is issued."""
     try:
@@ -104,8 +102,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f'🎨 Resim Komutları:\n'
             f'1. DALL-E 3 ile resim: /dalle [açıklama]\n'
             f'2. Flux ile resim: /flux [açıklama]\n'
-            f'3. Göz AI ile resim: /goz [açıklama]\n'
-            f'4. Resim iyileştirme: /upscale (resmi yanıtlayarak)\n\n'
+            f'3. Resim iyileştirme: /upscale (resmi yanıtlayarak)\n\n'
             f'🎬 Film Komutları:\n'
             f'1. Film türüne göre öneriler: /genre [tür]\n'
             f'2. Benzer film önerileri: /similar [film adı]\n\n'
@@ -114,18 +111,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f'2. Müzik tanımak için: Ses kaydı veya müzik dosyası gönderin\n\n'
             f'📥 İndirme Komutları:\n'
             f'1. YouTube indirmek için: /yt [video linki]\n\n'
-            f'🤖 AI Komutları:\n'
-            f'1. Gemini Pro ile sohbet: /chat [mesaj]\n\n'
             f'🛠️ Diğer Komutlar:\n'
             f'1. Domain sorgulamak için: /whois [domain.com]\n'
             f'2. İnternet hız testi: /speedtest\n\n'
             f'📝 Örnekler:\n'
             f'• /dalle bir adam denizde yüzüyor 🎨\n'
-            f'• /goz güzel bir manzara 🎨\n'
             f'• /genre korku 🎬\n'
             f'• /similar Matrix 🎬\n'
             f'• /song Hadise Aşk Kaç Beden Giyer 🎵\n'
-            f'• /chat merhaba nasılsın? 🤖\n'
             f'• /whois google.com 🔍\n'
             f'• /yt https://youtube.com/watch?v=... 📥\n\n'
             f'⚠️ Limitler:\n'
@@ -1237,180 +1230,39 @@ async def similar_movies(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Similar movies error: {str(e)}")
         await update.message.reply_text("Bir hata oluştu. Lütfen tekrar deneyin.")
 
-async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Chat with Gemini Pro AI."""
+async def lastroom(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Lastroom API ile resim oluşturur"""
     try:
-        # Check if user provided text
+        # Kullanıcı promptunu al
         if not context.args:
             await update.message.reply_text(
-                "Lütfen bir mesaj yazın.\n"
-                "Örnek: /chat merhaba nasılsın?"
+                "Lütfen bir prompt girin.\n"
+                "Örnek: /lastroom bir kedi yavrusu"
             )
             return
+
+        prompt = " ".join(context.args)
         
-        # Get the message
-        user_message = ' '.join(context.args)
+        # İşlem başladı mesajı
+        processing_message = await update.message.reply_text("🎨 Resim oluşturuluyor...")
         
-        # Send typing action
-        await context.bot.send_chat_action(
-            chat_id=update.effective_chat.id,
-            action="typing"
-        )
+        # Resmi oluştur
+        result = lastroom_api.generate_image(prompt)
         
-        try:
-            # Make request to Gemini API with SSL verification disabled
-            params = {
-                'prompt': user_message,
-                'i': '1'
-            }
-            
-            response = requests.get(GEMINI_API_BASE, params=params, timeout=30, verify=False)
-            logger.info(f"Gemini API Response Status: {response.status_code}")
-            
-            if response.status_code == 200:
-                # Get AI response
-                ai_response = response.text.strip()
-                
-                if ai_response:
-                    await update.message.reply_text(
-                        f"🤖 {ai_response}",
-                        parse_mode=None
-                    )
-                else:
-                    await update.message.reply_text(
-                        "❌ AI yanıt vermedi. Lütfen tekrar deneyin."
-                    )
-            else:
-                await update.message.reply_text(
-                    "❌ AI servisi şu anda çalışmıyor.\n"
-                    "Lütfen daha sonra tekrar deneyin."
-                )
-                
-        except requests.Timeout:
-            await update.message.reply_text(
-                "⏰ AI yanıt vermedi, lütfen tekrar deneyin."
-            )
-        except requests.RequestException as e:
-            logger.error(f"Gemini API request error: {str(e)}")
-            await update.message.reply_text(
-                "🔌 Bağlantı hatası oluştu, lütfen tekrar deneyin."
-            )
-        except Exception as e:
-            logger.error(f"Chat error: {str(e)}")
-            await update.message.reply_text(
-                "⚠️ Beklenmeyen bir hata oluştu, lütfen tekrar deneyin."
-            )
-            
+        if result:
+            # Başarılı olursa resmi gönder
+            await update.message.reply_text(f"✨ Resim oluşturuldu!\n🎯 Prompt: {prompt}")
+            # TODO: Resim URL'ini bul ve gönder
+            # await update.message.reply_photo(photo=image_url)
+        else:
+            await update.message.reply_text("❌ Resim oluşturulamadı. Lütfen tekrar deneyin.")
+        
+        # İşlem mesajını sil
+        await processing_message.delete()
+        
     except Exception as e:
-        logger.error(f"Chat command error: {str(e)}")
-        await update.message.reply_text("Bir hata oluştu. Lütfen tekrar deneyin.")
-
-async def generate_eye_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Generate an image using the Eye AI model."""
-    try:
-        # Check if user provided text
-        if not context.args:
-            await update.message.reply_text(
-                "Lütfen bir açıklama yazın.\n"
-                "Örnek: /goz güzel bir manzara"
-            )
-            return
-
-        # Get the prompt
-        prompt = ' '.join(context.args)
-
-        # Check rate limit
-        user_id = update.effective_user.id
-        current_time = datetime.now()
-        USER_RATES[user_id] = [time for time in USER_RATES[user_id] 
-                              if current_time - time < timedelta(minutes=1)]
-        
-        if len(USER_RATES[user_id]) >= MAX_REQUESTS_PER_MINUTE:
-            await update.message.reply_text(
-                f"⚠️ Dakikada maksimum {MAX_REQUESTS_PER_MINUTE} resim oluşturabilirsiniz.\n"
-                "Lütfen biraz bekleyin."
-            )
-            return
-
-        # Add current request time
-        USER_RATES[user_id].append(current_time)
-
-        # Send processing message
-        processing_message = await update.message.reply_text(
-            "🎨 Resim oluşturuluyor...\n"
-            "Bu işlem biraz zaman alabilir."
-        )
-
-        try:
-            # Prepare the request
-            encoded_prompt = urllib.parse.quote(prompt)
-            initial_url = f"{AI_IMAGE_API_BASE}{encoded_prompt}"
-            
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': '*/*',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'Connection': 'keep-alive',
-                'Cache-Control': 'no-cache',
-                'Pragma': 'no-cache'
-            }
-            
-            # Create session with retry strategy
-            session = requests.Session()
-            session.trust_env = False
-            
-            # Get initial response
-            response = session.get(initial_url, headers=headers, timeout=30, verify=False)
-            logger.info(f"Initial API Response Status: {response.status_code}")
-            
-            # Extract image URL from response content
-            if response.status_code == 200:
-                try:
-                    # Try to find URL in response content
-                    content = response.text
-                    matches = re.findall(r'https://tmpfiles\.org/dl/\d+/[^"\'<>\s]+', content)
-                    
-                    if matches:
-                        image_url = matches[0]
-                        logger.info(f"Found image URL: {image_url}")
-                        
-                        # Get the image
-                        image_response = session.get(image_url, headers=headers, timeout=30, verify=False)
-                        
-                        if image_response.status_code == 200 and image_response.content:
-                            # Send the image
-                            await context.bot.send_photo(
-                                chat_id=update.effective_chat.id,
-                                photo=image_response.content,
-                                caption=f"🎨 Prompt: {prompt}"
-                            )
-                            return
-                        
-                except Exception as e:
-                    logger.error(f"Error extracting image URL: {str(e)}")
-            
-            # If we get here, something went wrong
-            await update.message.reply_text(
-                "❌ Resim oluşturulamadı.\n"
-                "Lütfen tekrar deneyin."
-            )
-                
-        except requests.Timeout:
-            logger.error("Request timeout")
-            await update.message.reply_text(
-                "⏰ Zaman aşımı oluştu, lütfen tekrar deneyin."
-            )
-        except requests.RequestException as e:
-            logger.error(f"AI Image API request error: {str(e)}")
-            await update.message.reply_text(
-                "🔌 Bağlantı hatası oluştu, lütfen tekrar deneyin."
-            )
-        finally:
-            await processing_message.delete()
-            
-    except Exception as e:
-        logger.error(f"Eye image generation error: {str(e)}")
-        await update.message.reply_text("Bir hata oluştu. Lütfen tekrar deneyin.")
+        logger.error(f"Lastroom hatası: {str(e)}")
+        await update.message.reply_text("❌ Bir hata oluştu. Lütfen tekrar deneyin.")
 
 def main():
     """Start the bot."""
@@ -1430,8 +1282,7 @@ def main():
             CommandHandler("upscale", upscale_image),
             CommandHandler("genre", genre_movies),
             CommandHandler("similar", similar_movies),
-            CommandHandler("chat", chat),
-            CommandHandler("goz", generate_eye_image),
+            CommandHandler("lastroom", lastroom),
             CallbackQueryHandler(youtube_button),
             MessageHandler(filters.VOICE | filters.AUDIO, recognize_music)
         ]
@@ -1444,7 +1295,7 @@ def main():
         logger.info("Bot configuration:")
         logger.info(f"- Maximum requests per minute: {MAX_REQUESTS_PER_MINUTE}")
         logger.info(f"- Maximum prompt length: {MAX_PROMPT_LENGTH}")
-        logger.info("- Available commands: start, dalle, flux, song, whois, yt, speedtest, upscale, genre, similar, chat")
+        logger.info("- Available commands: start, dalle, flux, song, whois, yt, speedtest, upscale, genre, similar, lastroom")
         logger.info("- Music recognition enabled: Yes")
         logger.info("Bot started successfully!")
 
