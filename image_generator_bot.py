@@ -16,7 +16,6 @@ import json
 from typing import Optional, Dict, Any, List
 import speedtest
 from requests_toolbelt.multipart.encoder import MultipartEncoder
-from lastroom_api import LastroomAPI
 
 # Enable logging with file output
 logging.basicConfig(
@@ -58,6 +57,10 @@ MUSIC_API_BASE = "https://jiosaavn-api-codyandersan.vercel.app/search/all"
 WHOIS_API_BASE = "https://rdap.org/domain/"
 AUDD_API_URL = "https://api.audd.io/"
 TMDB_API_BASE = "https://api.themoviedb.org/3"
+LASTROOM_API_BASE = "https://www.lastroom.ct.ws/ai-image"
+
+# Session for Lastroom API
+lastroom_session = requests.Session()
 
 # Film türleri
 MOVIE_GENRES = {
@@ -90,46 +93,35 @@ FLUX_DAILY_LIMIT = 3
 user_upscale_counts: Dict[int, Dict[str, int]] = defaultdict(lambda: {"count": 0, "reset_date": ""})
 user_flux_counts: Dict[int, Dict[str, int]] = defaultdict(lambda: {"count": 0, "reset_date": ""})
 
-# Lastroom API instance
-lastroom_api = LastroomAPI()
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send a message when the command /start is issued."""
-    try:
-        user_name = update.message.from_user.first_name
-        await update.message.reply_text(
-            f'Merhaba {user_name}! 👋\n\n'
-            f'🎨 Resim Komutları:\n'
-            f'1. DALL-E 3 ile resim: /dalle [açıklama]\n'
-            f'2. Flux ile resim: /flux [açıklama]\n'
-            f'3. Resim iyileştirme: /upscale (resmi yanıtlayarak)\n\n'
-            f'🎬 Film Komutları:\n'
-            f'1. Film türüne göre öneriler: /genre [tür]\n'
-            f'2. Benzer film önerileri: /similar [film adı]\n\n'
-            f'🎵 Müzik Komutları:\n'
-            f'1. Şarkı aramak için: /song [şarkı adı]\n'
-            f'2. Müzik tanımak için: Ses kaydı veya müzik dosyası gönderin\n\n'
-            f'📥 İndirme Komutları:\n'
-            f'1. YouTube indirmek için: /yt [video linki]\n\n'
-            f'🛠️ Diğer Komutlar:\n'
-            f'1. Domain sorgulamak için: /whois [domain.com]\n'
-            f'2. İnternet hız testi: /speedtest\n\n'
-            f'📝 Örnekler:\n'
-            f'• /dalle bir adam denizde yüzüyor 🎨\n'
-            f'• /genre korku 🎬\n'
-            f'• /similar Matrix 🎬\n'
-            f'• /song Hadise Aşk Kaç Beden Giyer 🎵\n'
-            f'• /whois google.com 🔍\n'
-            f'• /yt https://youtube.com/watch?v=... 📥\n\n'
-            f'⚠️ Limitler:\n'
-            f'• Dakikada {MAX_REQUESTS_PER_MINUTE} resim oluşturabilirsiniz\n'
-            f'• Günlük {FLUX_DAILY_LIMIT} Flux resim hakkı\n'
-            f'• Günlük {UPSCALE_DAILY_LIMIT} resim iyileştirme hakkı\n'
-            f'• Maksimum {MAX_PROMPT_LENGTH} karakter uzunluğunda açıklama'
-        )
-    except Exception as e:
-        logger.error(f"Start command error: {str(e)}")
-        await update.message.reply_text("Bir hata oluştu. Lütfen tekrar deneyin.")
+    user = update.effective_user
+    await update.message.reply_html(
+        f"Merhaba {user.mention_html()}! 👋\n\n"
+        "🤖 Ben çok fonksiyonlu bir botum. İşte yapabildiğim şeyler:\n\n"
+        "🎨 <b>Resim Komutları:</b>\n"
+        "- /dalle [açıklama] - DALL-E 3 ile resim oluştur\n"
+        "- /flux [açıklama] - Stable Diffusion ile resim oluştur\n"
+        "- /lastroom [açıklama] - Lastroom AI ile resim oluştur\n"
+        "- /upscale - Son gönderilen resmi yüksek çözünürlüğe çıkar\n\n"
+        "🎬 <b>Film Komutları:</b>\n"
+        "- /genre [tür] - Belirli bir türdeki filmleri listele\n"
+        "- /similar [film adı] - Benzer filmleri bul\n\n"
+        "🎵 <b>Müzik Komutları:</b>\n"
+        "- /song [şarkı adı] - Şarkı ara ve indir\n"
+        "- Ses kaydı gönder - Şarkıyı tanı\n\n"
+        "📥 <b>İndirme Komutları:</b>\n"
+        "- /yt [link] - YouTube videosu indir\n\n"
+        "🛠 <b>Diğer Komutlar:</b>\n"
+        "- /whois [domain] - Domain bilgisi sorgula\n"
+        "- /speedtest - İnternet hız testi yap\n\n"
+        "⚠️ <b>Limitler:</b>\n"
+        "- Dakikada maksimum 5 istek\n"
+        "- Maksimum prompt uzunluğu: 500 karakter\n"
+        "- YouTube video limiti: 100MB\n\n"
+        "🔄 Her komut için örnek kullanımı görmek için komutu parametresiz gönderebilirsiniz.\n"
+        "❓ Sorun yaşarsanız @yourusername ile iletişime geçebilirsiniz."
+    )
 
 def extract_video_id(url):
     """Extract video ID from various YouTube URL formats."""
@@ -1230,40 +1222,86 @@ async def similar_movies(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Similar movies error: {str(e)}")
         await update.message.reply_text("Bir hata oluştu. Lütfen tekrar deneyin.")
 
-async def lastroom(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Lastroom API ile resim oluşturur"""
+async def generate_lastroom(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Generate an image using Lastroom API."""
     try:
-        # Kullanıcı promptunu al
+        # Check if user provided text
         if not context.args:
             await update.message.reply_text(
-                "Lütfen bir prompt girin.\n"
-                "Örnek: /lastroom bir kedi yavrusu"
+                "Lütfen bir açıklama girin.\n"
+                "Örnek: /lastroom bir kedi"
             )
             return
-
-        prompt = " ".join(context.args)
         
-        # İşlem başladı mesajı
-        processing_message = await update.message.reply_text("🎨 Resim oluşturuluyor...")
+        # Get user ID for rate limiting
+        user_id = update.effective_user.id
         
-        # Resmi oluştur
-        image_url = lastroom_api.generate_image(prompt)
-        
-        if image_url:
-            # Başarılı olursa resmi gönder
-            await update.message.reply_photo(
-                photo=image_url,
-                caption=f"✨ Resim oluşturuldu!\n🎯 Prompt: {prompt}"
+        # Check rate limit
+        if not check_rate_limit(user_id):
+            remaining_time = 60 - (datetime.now() - USER_RATES[user_id][0]).seconds
+            await update.message.reply_text(
+                f"Çok fazla istek gönderdiniz. Lütfen {remaining_time} saniye bekleyin."
             )
-        else:
-            await update.message.reply_text("❌ Resim oluşturulamadı. Lütfen tekrar deneyin.")
+            return
         
-        # İşlem mesajını sil
-        await processing_message.delete()
+        # Get the text after the command
+        user_text = ' '.join(context.args)
         
+        # Check prompt length
+        if len(user_text) > MAX_PROMPT_LENGTH:
+            await update.message.reply_text(
+                f"Açıklama çok uzun! Maksimum {MAX_PROMPT_LENGTH} karakter girebilirsiniz."
+            )
+            return
+        
+        # Send a "processing" message
+        processing_message = await update.message.reply_text(
+            "🎨 Lastroom AI ile resim oluşturuluyor..."
+        )
+        
+        try:
+            # Encode the user's text for the URL
+            encoded_text = urllib.parse.quote(user_text)
+            
+            # First request to get the JavaScript code
+            url = f"{LASTROOM_API_BASE}/?prompt={encoded_text}"
+            response = lastroom_session.get(url, timeout=30)
+            
+            if response.status_code == 200:
+                # Get cookies from response
+                cookies = response.cookies
+                
+                # Make second request with cookies
+                url_with_i = f"{url}&i=1"
+                response = lastroom_session.get(url_with_i, cookies=cookies, timeout=30)
+                
+                if response.status_code == 200:
+                    # Send the image
+                    await update.message.reply_photo(
+                        photo=response.url,
+                        caption=(
+                            f"🎨 İşte Lastroom AI ile oluşturduğum resim!\n\n"
+                            f"📝 Prompt: {user_text}"
+                        )
+                    )
+                else:
+                    raise Exception(f"HTTP {response.status_code}")
+            else:
+                raise Exception(f"HTTP {response.status_code}")
+                
+        except Exception as e:
+            logger.error(f"Lastroom generation error: {str(e)}")
+            await update.message.reply_text(
+                "❌ Resim oluşturulurken bir hata oluştu.\n"
+                "Lütfen daha sonra tekrar deneyin."
+            )
+        
+        finally:
+            await processing_message.delete()
+            
     except Exception as e:
-        logger.error(f"Lastroom hatası: {str(e)}")
-        await update.message.reply_text("❌ Bir hata oluştu. Lütfen tekrar deneyin.")
+        logger.error(f"Lastroom command error: {str(e)}")
+        await update.message.reply_text("Bir hata oluştu. Lütfen tekrar deneyin.")
 
 def main():
     """Start the bot."""
@@ -1283,7 +1321,7 @@ def main():
             CommandHandler("upscale", upscale_image),
             CommandHandler("genre", genre_movies),
             CommandHandler("similar", similar_movies),
-            CommandHandler("lastroom", lastroom),
+            CommandHandler("lastroom", generate_lastroom),
             CallbackQueryHandler(youtube_button),
             MessageHandler(filters.VOICE | filters.AUDIO, recognize_music)
         ]
