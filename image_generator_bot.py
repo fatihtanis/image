@@ -16,10 +16,6 @@ import json
 from typing import Optional, Dict, Any, List
 import speedtest
 from requests_toolbelt.multipart.encoder import MultipartEncoder
-import torch
-from diffusers import FluxPipeline
-from io import BytesIO
-from PIL import Image
 
 # Enable logging with file output
 logging.basicConfig(
@@ -102,8 +98,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f'🎨 Resim Komutları:\n'
             f'1. DALL-E 3 ile resim: /dalle [açıklama]\n'
             f'2. Flux ile resim: /flux [açıklama]\n'
-            f'3. Schnell ile resim: /schnell [açıklama]\n'
-            f'4. Resim iyileştirme: /upscale (resmi yanıtlayarak)\n\n'
+            f'3. Resim iyileştirme: /upscale (resmi yanıtlayarak)\n\n'
             f'🎬 Film Komutları:\n'
             f'1. Film türüne göre öneriler: /genre [tür]\n'
             f'2. Benzer film önerileri: /similar [film adı]\n\n'
@@ -117,8 +112,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f'2. İnternet hız testi: /speedtest\n\n'
             f'📝 Örnekler:\n'
             f'• /dalle bir adam denizde yüzüyor 🎨\n'
-            f'• /flux bir kedi ağaca tırmanıyor 🎨\n'
-            f'• /schnell fantastik bir şehir manzarası 🎨\n'
             f'• /genre korku 🎬\n'
             f'• /similar Matrix 🎬\n'
             f'• /song Hadise Aşk Kaç Beden Giyer 🎵\n'
@@ -486,26 +479,35 @@ async def generate_dalle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Encode the user's text for the URL
             encoded_text = urllib.parse.quote(user_text)
             
-            # Make request to the DALL-E 3 API
-            api_url = f"https://prompt.glitchy.workers.dev/gen?key={encoded_text}&t=0.2&f=dalle3&demo=true&count=1&nsfw=true"
+            # Make request to the DALL-E API
+            api_url = f"https://api.imgcreator.cloud/dall-e?prompt={encoded_text}&style=default"
+            
             response = requests.get(api_url, timeout=30)
+            logger.info(f"DALL-E API Response Status: {response.status_code}")
             
             if response.status_code == 200:
-                data = response.json()
-                if data.get("status") == 1 and "images" in data:
-                    # Get the image URL from the response
-                    image_url = data["images"][0]["imagedemo1"][0]
-                    
-                    # Send the image
+                try:
+                    data = response.json()
+                    if data.get("url"):
+                        # Send the image
+                        await update.message.reply_photo(
+                            photo=data["url"],
+                            caption=(
+                                f"🎨 İşte DALL-E 3 ile oluşturduğum resim!\n\n"
+                                f"📝 Prompt: {user_text}"
+                            )
+                        )
+                    else:
+                        raise Exception("API yanıtında resim URL'i yok")
+                except ValueError:
+                    # If response is not JSON, try getting image directly
                     await update.message.reply_photo(
-                        photo=image_url,
+                        photo=response.content,
                         caption=(
                             f"🎨 İşte DALL-E 3 ile oluşturduğum resim!\n\n"
                             f"📝 Prompt: {user_text}"
                         )
                     )
-                else:
-                    raise Exception("API yanıtı geçersiz")
             else:
                 raise Exception(f"HTTP {response.status_code}")
                 
@@ -600,91 +602,6 @@ async def generate_flux(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     except Exception as e:
         logger.error(f"Flux generation error: {str(e)}")
         await update.message.reply_text("❌ Bir hata oluştu. Lütfen tekrar deneyin.")
-
-async def generate_schnell(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Generate an image using Flux.1 Schnell model with diffusers."""
-    try:
-        # Check if user provided text
-        if not context.args:
-            await update.message.reply_text(
-                "❌ Lütfen bir açıklama girin.\n"
-                "Örnek: /schnell bir kedi ağaca tırmanıyor"
-            )
-            return
-
-        # Get user ID for rate limiting
-        user_id = update.effective_user.id
-        
-        # Check rate limit
-        if not check_rate_limit(user_id):
-            remaining_time = 60 - (datetime.now() - USER_RATES[user_id][0]).seconds
-            await update.message.reply_text(
-                f"Çok fazla istek gönderdiniz. Lütfen {remaining_time} saniye bekleyin."
-            )
-            return
-
-        prompt = " ".join(context.args)
-        
-        if len(prompt) > MAX_PROMPT_LENGTH:
-            await update.message.reply_text(
-                f"❌ Açıklama çok uzun! Maksimum {MAX_PROMPT_LENGTH} karakter girebilirsiniz."
-            )
-            return
-
-        # Send processing message
-        processing_msg = await update.message.reply_text(
-            "🔄 Model: FLUX.1 Schnell\n"
-            "⏳ Resim oluşturuluyor..."
-        )
-
-        try:
-            # Initialize the pipeline
-            pipe = FluxPipeline.from_pretrained(
-                "black-forest-labs/FLUX.1-schnell", 
-                torch_dtype=torch.bfloat16
-            )
-            pipe.enable_model_cpu_offload()
-
-            # Generate image
-            image = pipe(
-                prompt,
-                guidance_scale=0.0,
-                num_inference_steps=4,
-                max_sequence_length=256,
-                generator=torch.Generator("cpu").manual_seed(0)
-            ).images[0]
-
-            # Convert PIL image to bytes
-            bio = BytesIO()
-            bio.name = 'image.png'
-            image.save(bio, 'PNG')
-            bio.seek(0)
-
-            # Send the generated image
-            await context.bot.send_photo(
-                chat_id=update.effective_chat.id,
-                photo=bio,
-                caption=(
-                    f"🎨 FLUX.1 Schnell ile oluşturuldu!\n\n"
-                    f"📝 Prompt: {prompt}"
-                )
-            )
-
-        except Exception as e:
-            logger.error(f"Image generation error: {str(e)}")
-            await update.message.reply_text(
-                "❌ Resim oluşturulurken bir hata oluştu.\n"
-                "Lütfen daha sonra tekrar deneyin."
-            )
-
-        # Delete processing message
-        await processing_msg.delete()
-
-    except Exception as e:
-        logger.error(f"Schnell generation error: {str(e)}")
-        await update.message.reply_text(
-            "❌ Bir hata oluştu. Lütfen tekrar deneyin."
-        )
 
 async def whois_lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Look up WHOIS information for a domain."""
@@ -1329,7 +1246,6 @@ def main():
             CommandHandler("start", start),
             CommandHandler("dalle", generate_dalle),
             CommandHandler("flux", generate_flux),
-            CommandHandler("schnell", generate_schnell),
             CommandHandler("song", search_song),
             CommandHandler("whois", whois_lookup),
             CommandHandler("yt", youtube_command),
@@ -1349,7 +1265,7 @@ def main():
         logger.info("Bot configuration:")
         logger.info(f"- Maximum requests per minute: {MAX_REQUESTS_PER_MINUTE}")
         logger.info(f"- Maximum prompt length: {MAX_PROMPT_LENGTH}")
-        logger.info("- Available commands: start, dalle, flux, schnell, song, whois, yt, speedtest, upscale, genre, similar")
+        logger.info("- Available commands: start, dalle, flux, song, whois, yt, speedtest, upscale, genre, similar")
         logger.info("- Music recognition enabled: Yes")
         logger.info("Bot started successfully!")
 
