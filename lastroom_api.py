@@ -7,6 +7,7 @@ import sys
 import urllib3
 from bs4 import BeautifulSoup
 import re
+import time
 
 # SSL uyarılarını devre dışı bırak
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -27,63 +28,79 @@ class LastroomAPI:
     def __init__(self):
         self.base_url = "https://www.lastroom.ct.ws/ai-image/"
         self.headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
             'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-User': '?1',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+            'Sec-Ch-Ua-Mobile': '?0',
+            'Sec-Ch-Ua-Platform': '"Windows"',
+            'Cache-Control': 'max-age=0'
         }
         self.session = requests.Session()
 
-    def _follow_redirect(self, html_content, prompt):
-        """JavaScript yönlendirmesini takip et"""
+    def _get_image_url(self, html_content):
+        """HTML içeriğinden resim URL'ini çıkar"""
         try:
-            # Direkt olarak i=1 parametresi eklenmiş URL'yi dene
-            redirect_url = f"{self.base_url}?prompt={prompt}&i=1"
-            logger.info(f"Yönlendirme URL'i: {redirect_url}")
+            soup = BeautifulSoup(html_content, 'html.parser')
             
-            # Cookie'leri kullanarak yönlendirmeyi takip et
-            response = self.session.get(redirect_url, headers=self.headers, verify=False)
-            return response
+            # Tüm img etiketlerini kontrol et
+            for img in soup.find_all('img'):
+                src = img.get('src', '')
+                if src and ('result' in src.lower() or 'output' in src.lower() or 'generated' in src.lower()):
+                    if not src.startswith('http'):
+                        src = f"https://www.lastroom.ct.ws{src}"
+                    logger.info(f"Resim URL'i bulundu: {src}")
+                    return src
             
+            return None
         except Exception as e:
-            logger.error(f"Yönlendirme hatası: {str(e)}")
+            logger.error(f"Resim URL'i çıkarma hatası: {str(e)}")
             return None
 
     def generate_image(self, prompt: str) -> Optional[str]:
         """Verilen prompt ile resim oluşturur"""
         try:
-            # İlk istek
-            params = {'prompt': prompt}
+            # URL'yi hazırla
+            url = f"{self.base_url}?prompt={prompt}"
+            logger.info(f"İstek URL'i: {url}")
+            
+            # İlk istek - ana sayfa
             response = self.session.get(
-                self.base_url,
-                params=params,
+                url,
                 headers=self.headers,
-                verify=False
+                verify=False,
+                allow_redirects=True
             )
             
             logger.info(f"İlk yanıt kodu: {response.status_code}")
             
             if response.status_code == 200:
-                # Yönlendirmeyi takip et
-                redirect_response = self._follow_redirect(response.text, prompt)
+                # Kısa bir bekleme
+                time.sleep(2)
                 
-                if redirect_response and redirect_response.status_code == 200:
-                    logger.info("Yönlendirme başarılı")
-                    logger.info(f"Yanıt içeriği: {redirect_response.text[:200]}...")
-                    
+                # İkinci istek - resim sayfası
+                response = self.session.get(
+                    f"{url}&i=1",
+                    headers=self.headers,
+                    verify=False,
+                    allow_redirects=True
+                )
+                
+                if response.status_code == 200:
                     # Resim URL'ini bul
-                    soup = BeautifulSoup(redirect_response.text, 'html.parser')
-                    img_tag = soup.find('img', {'class': 'result-image'})
-                    
-                    if img_tag and img_tag.get('src'):
-                        image_url = img_tag.get('src')
-                        if not image_url.startswith('http'):
-                            image_url = f"https://www.lastroom.ct.ws{image_url}"
-                        logger.info(f"Resim URL'i bulundu: {image_url}")
+                    image_url = self._get_image_url(response.text)
+                    if image_url:
                         return image_url
                     
                     logger.error("Resim URL'i bulunamadı")
-                    return None
+                    logger.info(f"Sayfa içeriği: {response.text[:500]}...")
             
             return None
                 
