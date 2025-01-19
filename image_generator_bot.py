@@ -57,7 +57,7 @@ MUSIC_API_BASE = "https://jiosaavn-api-codyandersan.vercel.app/search/all"
 WHOIS_API_BASE = "https://rdap.org/domain/"
 AUDD_API_URL = "https://api.audd.io/"
 TMDB_API_BASE = "https://api.themoviedb.org/3"
-LASTROOM_API = "https://www.lastroom.ct.ws/ai-image/api.php"
+GEMINI_API_BASE = "https://www.lastroom.ct.ws/gemini-pro"
 
 # Film türleri
 MOVIE_GENRES = {
@@ -108,6 +108,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f'2. Müzik tanımak için: Ses kaydı veya müzik dosyası gönderin\n\n'
             f'📥 İndirme Komutları:\n'
             f'1. YouTube indirmek için: /yt [video linki]\n\n'
+            f'🤖 AI Sohbet:\n'
+            f'1. Gemini Pro ile sohbet: /chat [mesaj]\n\n'
             f'🛠️ Diğer Komutlar:\n'
             f'1. Domain sorgulamak için: /whois [domain.com]\n'
             f'2. İnternet hız testi: /speedtest\n\n'
@@ -116,6 +118,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f'• /genre korku 🎬\n'
             f'• /similar Matrix 🎬\n'
             f'• /song Hadise Aşk Kaç Beden Giyer 🎵\n'
+            f'• /chat Yapay zeka nedir? 🤖\n'
             f'• /whois google.com 🔍\n'
             f'• /yt https://youtube.com/watch?v=... 📥\n\n'
             f'⚠️ Limitler:\n'
@@ -1227,106 +1230,75 @@ async def similar_movies(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Similar movies error: {str(e)}")
         await update.message.reply_text("Bir hata oluştu. Lütfen tekrar deneyin.")
 
-async def generate_lux(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Generate an image using Lastroom API."""
+async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Chat with Gemini Pro AI."""
     try:
         # Check if user provided text
         if not context.args:
             await update.message.reply_text(
-                "Lütfen bir açıklama girin.\n"
-                "Örnek: /lux bir kedi ağaca tırmanıyor"
+                "Lütfen bir soru veya mesaj yazın.\n"
+                "Örnek: /chat Yapay zeka nedir?"
             )
             return
         
-        # Get user ID for rate limiting
-        user_id = update.effective_user.id
+        # Get the user's message
+        user_message = ' '.join(context.args)
         
-        # Check rate limit
-        if not check_rate_limit(user_id):
-            remaining_time = 60 - (datetime.now() - USER_RATES[user_id][0]).seconds
-            await update.message.reply_text(
-                f"Çok fazla istek gönderdiniz. Lütfen {remaining_time} saniye bekleyin."
-            )
-            return
-        
-        # Get the text after the command
-        user_text = ' '.join(context.args)
-        
-        # Check prompt length
-        if len(user_text) > MAX_PROMPT_LENGTH:
-            await update.message.reply_text(
-                f"Açıklama çok uzun! Maksimum {MAX_PROMPT_LENGTH} karakter girebilirsiniz."
-            )
-            return
-        
-        # Send a "processing" message
-        processing_message = await update.message.reply_text(
-            "🎨 Lux AI ile resim oluşturuluyor..."
+        # Send typing action
+        await context.bot.send_chat_action(
+            chat_id=update.effective_chat.id,
+            action="typing"
         )
         
         try:
-            # Make request to the Lastroom API
+            # Prepare request parameters
             params = {
-                'prompt': user_text
+                'prompt': user_message,
+                'language': 'tr',
+                'model': 'gemini-1.5-flash',
+                'temperature': 0.7
             }
             
-            # Disable SSL verification for this request
-            response = requests.get(LASTROOM_API, params=params, timeout=30, verify=False)
-            logger.info(f"Lastroom API Response: {response.text}")
+            # Make request to Gemini API
+            response = requests.get(GEMINI_API_BASE, params=params, timeout=30)
             
             if response.status_code == 200:
                 data = response.json()
-                if data.get("success") and data.get("images"):
-                    # Get the image URL from the response
-                    image_url = data["images"][0]
-                    
-                    try:
-                        # Download and send the image (also disable SSL verification for image download)
-                        image_response = requests.get(image_url, timeout=30, verify=False)
-                        if image_response.status_code == 200:
-                            # Send the image
-                            await update.message.reply_photo(
-                                photo=image_response.content,
-                                caption=(
-                                    f"🎨 İşte Lux AI ile oluşturduğum resim!\n\n"
-                                    f"📝 Prompt: {user_text}"
-                                )
-                            )
-                        else:
-                            raise Exception("Görüntü indirilemedi")
-                    except Exception as img_error:
-                        logger.error(f"Image download error: {str(img_error)}")
-                        # If image download fails, send the URL
-                        await update.message.reply_text(
-                            f"🎨 Resim oluşturuldu! İndirmek için:\n{image_url}\n\n"
-                            f"📝 Prompt: {user_text}"
-                        )
+                
+                if data and isinstance(data, str):
+                    # Send the AI response
+                    await update.message.reply_text(
+                        f"🤖 Yanıt:\n\n{data}",
+                        parse_mode='Markdown'
+                    )
                 else:
-                    raise Exception("API yanıtı geçersiz")
+                    await update.message.reply_text(
+                        "❌ API'den geçersiz yanıt alındı.\n"
+                        "Lütfen daha sonra tekrar deneyin."
+                    )
             else:
-                raise Exception(f"HTTP {response.status_code}")
+                await update.message.reply_text(
+                    "❌ Şu anda yanıt veremiyorum.\n"
+                    "Lütfen daha sonra tekrar deneyin."
+                )
                 
         except requests.Timeout:
             await update.message.reply_text(
                 "⏰ API yanıt vermedi, lütfen tekrar deneyin."
             )
         except requests.RequestException as e:
-            logger.error(f"Lastroom API request error: {str(e)}")
+            logger.error(f"Gemini API request error: {str(e)}")
             await update.message.reply_text(
                 "🔌 Bağlantı hatası oluştu, lütfen tekrar deneyin."
             )
         except Exception as e:
-            logger.error(f"Lux generation error: {str(e)}")
+            logger.error(f"Chat error: {str(e)}")
             await update.message.reply_text(
-                "❌ Resim oluşturulurken bir hata oluştu.\n"
-                "Lütfen daha sonra tekrar deneyin."
+                "⚠️ Beklenmeyen bir hata oluştu, lütfen tekrar deneyin."
             )
-        
-        finally:
-            await processing_message.delete()
             
     except Exception as e:
-        logger.error(f"Lux command error: {str(e)}")
+        logger.error(f"Chat command error: {str(e)}")
         await update.message.reply_text("Bir hata oluştu. Lütfen tekrar deneyin.")
 
 def main():
@@ -1340,7 +1312,6 @@ def main():
             CommandHandler("start", start),
             CommandHandler("dalle", generate_dalle),
             CommandHandler("flux", generate_flux),
-            CommandHandler("lux", generate_lux),
             CommandHandler("song", search_song),
             CommandHandler("whois", whois_lookup),
             CommandHandler("yt", youtube_command),
@@ -1348,6 +1319,7 @@ def main():
             CommandHandler("upscale", upscale_image),
             CommandHandler("genre", genre_movies),
             CommandHandler("similar", similar_movies),
+            CommandHandler("chat", chat),
             CallbackQueryHandler(youtube_button),
             MessageHandler(filters.VOICE | filters.AUDIO, recognize_music)
         ]
@@ -1360,7 +1332,7 @@ def main():
         logger.info("Bot configuration:")
         logger.info(f"- Maximum requests per minute: {MAX_REQUESTS_PER_MINUTE}")
         logger.info(f"- Maximum prompt length: {MAX_PROMPT_LENGTH}")
-        logger.info("- Available commands: start, dalle, flux, lux, song, whois, yt, speedtest, upscale, genre, similar")
+        logger.info("- Available commands: start, dalle, flux, song, whois, yt, speedtest, upscale, genre, similar, chat")
         logger.info("- Music recognition enabled: Yes")
         logger.info("Bot started successfully!")
 
