@@ -479,35 +479,26 @@ async def generate_dalle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Encode the user's text for the URL
             encoded_text = urllib.parse.quote(user_text)
             
-            # Make request to the DALL-E API
-            api_url = f"https://api.imgcreator.cloud/dall-e?prompt={encoded_text}&style=default"
-            
+            # Make request to the DALL-E 3 API
+            api_url = f"https://prompt.glitchy.workers.dev/gen?key={encoded_text}&t=0.2&f=dalle3&demo=true&count=1&nsfw=true"
             response = requests.get(api_url, timeout=30)
-            logger.info(f"DALL-E API Response Status: {response.status_code}")
             
             if response.status_code == 200:
-                try:
-                    data = response.json()
-                    if data.get("url"):
-                        # Send the image
-                        await update.message.reply_photo(
-                            photo=data["url"],
-                            caption=(
-                                f"🎨 İşte DALL-E 3 ile oluşturduğum resim!\n\n"
-                                f"📝 Prompt: {user_text}"
-                            )
-                        )
-                    else:
-                        raise Exception("API yanıtında resim URL'i yok")
-                except ValueError:
-                    # If response is not JSON, try getting image directly
+                data = response.json()
+                if data.get("status") == 1 and "images" in data:
+                    # Get the image URL from the response
+                    image_url = data["images"][0]["imagedemo1"][0]
+                    
+                    # Send the image
                     await update.message.reply_photo(
-                        photo=response.content,
+                        photo=image_url,
                         caption=(
                             f"🎨 İşte DALL-E 3 ile oluşturduğum resim!\n\n"
                             f"📝 Prompt: {user_text}"
                         )
                     )
+                else:
+                    raise Exception("API yanıtı geçersiz")
             else:
                 raise Exception(f"HTTP {response.status_code}")
                 
