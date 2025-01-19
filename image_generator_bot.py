@@ -16,6 +16,10 @@ import json
 from typing import Optional, Dict, Any, List
 import speedtest
 from requests_toolbelt.multipart.encoder import MultipartEncoder
+import torch
+from diffusers import FluxPipeline
+from io import BytesIO
+from PIL import Image
 
 # Enable logging with file output
 logging.basicConfig(
@@ -57,7 +61,6 @@ MUSIC_API_BASE = "https://jiosaavn-api-codyandersan.vercel.app/search/all"
 WHOIS_API_BASE = "https://rdap.org/domain/"
 AUDD_API_URL = "https://api.audd.io/"
 TMDB_API_BASE = "https://api.themoviedb.org/3"
-GEMINI_API_BASE = "http://www.lastroom.ct.ws/gemini-pro"
 
 # Film türleri
 MOVIE_GENRES = {
@@ -99,7 +102,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f'🎨 Resim Komutları:\n'
             f'1. DALL-E 3 ile resim: /dalle [açıklama]\n'
             f'2. Flux ile resim: /flux [açıklama]\n'
-            f'3. Resim iyileştirme: /upscale (resmi yanıtlayarak)\n\n'
+            f'3. Schnell ile resim: /schnell [açıklama]\n'
+            f'4. Resim iyileştirme: /upscale (resmi yanıtlayarak)\n\n'
             f'🎬 Film Komutları:\n'
             f'1. Film türüne göre öneriler: /genre [tür]\n'
             f'2. Benzer film önerileri: /similar [film adı]\n\n'
@@ -108,19 +112,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f'2. Müzik tanımak için: Ses kaydı veya müzik dosyası gönderin\n\n'
             f'📥 İndirme Komutları:\n'
             f'1. YouTube indirmek için: /yt [video linki]\n\n'
-            f'🤖 AI Sohbet:\n'
-            f'1. Gemini Pro ile sohbet: /chat [mesaj]\n\n'
             f'🛠️ Diğer Komutlar:\n'
             f'1. Domain sorgulamak için: /whois [domain.com]\n'
             f'2. İnternet hız testi: /speedtest\n\n'
             f'📝 Örnekler:\n'
             f'• /dalle bir adam denizde yüzüyor 🎨\n'
+            f'• /flux bir kedi ağaca tırmanıyor 🎨\n'
+            f'• /schnell fantastik bir şehir manzarası 🎨\n'
             f'• /genre korku 🎬\n'
             f'• /similar Matrix 🎬\n'
             f'• /song Hadise Aşk Kaç Beden Giyer 🎵\n'
-            f'• /chat Yapay zeka nedir? 🤖\n'
             f'• /whois google.com 🔍\n'
-            f'• /yt https://youtube.com/watch?v=... ��\n\n'
+            f'• /yt https://youtube.com/watch?v=... 📥\n\n'
             f'⚠️ Limitler:\n'
             f'• Dakikada {MAX_REQUESTS_PER_MINUTE} resim oluşturabilirsiniz\n'
             f'• Günlük {FLUX_DAILY_LIMIT} Flux resim hakkı\n'
@@ -597,6 +600,91 @@ async def generate_flux(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     except Exception as e:
         logger.error(f"Flux generation error: {str(e)}")
         await update.message.reply_text("❌ Bir hata oluştu. Lütfen tekrar deneyin.")
+
+async def generate_schnell(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Generate an image using Flux.1 Schnell model with diffusers."""
+    try:
+        # Check if user provided text
+        if not context.args:
+            await update.message.reply_text(
+                "❌ Lütfen bir açıklama girin.\n"
+                "Örnek: /schnell bir kedi ağaca tırmanıyor"
+            )
+            return
+
+        # Get user ID for rate limiting
+        user_id = update.effective_user.id
+        
+        # Check rate limit
+        if not check_rate_limit(user_id):
+            remaining_time = 60 - (datetime.now() - USER_RATES[user_id][0]).seconds
+            await update.message.reply_text(
+                f"Çok fazla istek gönderdiniz. Lütfen {remaining_time} saniye bekleyin."
+            )
+            return
+
+        prompt = " ".join(context.args)
+        
+        if len(prompt) > MAX_PROMPT_LENGTH:
+            await update.message.reply_text(
+                f"❌ Açıklama çok uzun! Maksimum {MAX_PROMPT_LENGTH} karakter girebilirsiniz."
+            )
+            return
+
+        # Send processing message
+        processing_msg = await update.message.reply_text(
+            "🔄 Model: FLUX.1 Schnell\n"
+            "⏳ Resim oluşturuluyor..."
+        )
+
+        try:
+            # Initialize the pipeline
+            pipe = FluxPipeline.from_pretrained(
+                "black-forest-labs/FLUX.1-schnell", 
+                torch_dtype=torch.bfloat16
+            )
+            pipe.enable_model_cpu_offload()
+
+            # Generate image
+            image = pipe(
+                prompt,
+                guidance_scale=0.0,
+                num_inference_steps=4,
+                max_sequence_length=256,
+                generator=torch.Generator("cpu").manual_seed(0)
+            ).images[0]
+
+            # Convert PIL image to bytes
+            bio = BytesIO()
+            bio.name = 'image.png'
+            image.save(bio, 'PNG')
+            bio.seek(0)
+
+            # Send the generated image
+            await context.bot.send_photo(
+                chat_id=update.effective_chat.id,
+                photo=bio,
+                caption=(
+                    f"🎨 FLUX.1 Schnell ile oluşturuldu!\n\n"
+                    f"📝 Prompt: {prompt}"
+                )
+            )
+
+        except Exception as e:
+            logger.error(f"Image generation error: {str(e)}")
+            await update.message.reply_text(
+                "❌ Resim oluşturulurken bir hata oluştu.\n"
+                "Lütfen daha sonra tekrar deneyin."
+            )
+
+        # Delete processing message
+        await processing_msg.delete()
+
+    except Exception as e:
+        logger.error(f"Schnell generation error: {str(e)}")
+        await update.message.reply_text(
+            "❌ Bir hata oluştu. Lütfen tekrar deneyin."
+        )
 
 async def whois_lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Look up WHOIS information for a domain."""
@@ -1230,82 +1318,6 @@ async def similar_movies(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Similar movies error: {str(e)}")
         await update.message.reply_text("Bir hata oluştu. Lütfen tekrar deneyin.")
 
-async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Chat with Gemini Pro AI."""
-    try:
-        # Check if user provided text
-        if not context.args:
-            await update.message.reply_text(
-                "Lütfen bir soru veya mesaj yazın.\n"
-                "Örnek: /chat Yapay zeka nedir?"
-            )
-            return
-        
-        # Get the user's message
-        user_message = ' '.join(context.args)
-        
-        # Send typing action
-        await context.bot.send_chat_action(
-            chat_id=update.effective_chat.id,
-            action="typing"
-        )
-        
-        try:
-            # Prepare request parameters
-            params = {
-                'prompt': user_message,
-                'language': 'tr',
-                'model': 'gemini-1.5-flash',
-                'temperature': 0.7
-            }
-            
-            # Make request to Gemini API with SSL verification disabled
-            response = requests.get(
-                GEMINI_API_BASE, 
-                params=params, 
-                timeout=30,
-                verify=False  # Disable SSL verification
-            )
-            
-            if response.status_code == 200:
-                data = response.json()
-                
-                if data and isinstance(data, str):
-                    # Send the AI response
-                    await update.message.reply_text(
-                        f"🤖 Yanıt:\n\n{data}",
-                        parse_mode='Markdown'
-                    )
-                else:
-                    await update.message.reply_text(
-                        "❌ API'den geçersiz yanıt alındı.\n"
-                        "Lütfen daha sonra tekrar deneyin."
-                    )
-            else:
-                await update.message.reply_text(
-                    "❌ Şu anda yanıt veremiyorum.\n"
-                    "Lütfen daha sonra tekrar deneyin."
-                )
-                
-        except requests.Timeout:
-            await update.message.reply_text(
-                "⏰ API yanıt vermedi, lütfen tekrar deneyin."
-            )
-        except requests.RequestException as e:
-            logger.error(f"Gemini API request error: {str(e)}")
-            await update.message.reply_text(
-                "🔌 Bağlantı hatası oluştu, lütfen tekrar deneyin."
-            )
-        except Exception as e:
-            logger.error(f"Chat error: {str(e)}")
-            await update.message.reply_text(
-                "⚠️ Beklenmeyen bir hata oluştu, lütfen tekrar deneyin."
-            )
-            
-    except Exception as e:
-        logger.error(f"Chat command error: {str(e)}")
-        await update.message.reply_text("Bir hata oluştu. Lütfen tekrar deneyin.")
-
 def main():
     """Start the bot."""
     try:
@@ -1317,6 +1329,7 @@ def main():
             CommandHandler("start", start),
             CommandHandler("dalle", generate_dalle),
             CommandHandler("flux", generate_flux),
+            CommandHandler("schnell", generate_schnell),
             CommandHandler("song", search_song),
             CommandHandler("whois", whois_lookup),
             CommandHandler("yt", youtube_command),
@@ -1324,7 +1337,6 @@ def main():
             CommandHandler("upscale", upscale_image),
             CommandHandler("genre", genre_movies),
             CommandHandler("similar", similar_movies),
-            CommandHandler("chat", chat),
             CallbackQueryHandler(youtube_button),
             MessageHandler(filters.VOICE | filters.AUDIO, recognize_music)
         ]
@@ -1337,7 +1349,7 @@ def main():
         logger.info("Bot configuration:")
         logger.info(f"- Maximum requests per minute: {MAX_REQUESTS_PER_MINUTE}")
         logger.info(f"- Maximum prompt length: {MAX_PROMPT_LENGTH}")
-        logger.info("- Available commands: start, dalle, flux, song, whois, yt, speedtest, upscale, genre, similar, chat")
+        logger.info("- Available commands: start, dalle, flux, schnell, song, whois, yt, speedtest, upscale, genre, similar")
         logger.info("- Music recognition enabled: Yes")
         logger.info("Bot started successfully!")
 
