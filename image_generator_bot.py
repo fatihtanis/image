@@ -16,6 +16,10 @@ import json
 from typing import Optional, Dict, Any, List
 import speedtest
 from requests_toolbelt.multipart.encoder import MultipartEncoder
+import urllib3
+
+# Disable SSL verification warnings
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Enable logging with file output
 logging.basicConfig(
@@ -616,7 +620,7 @@ async def generate_fluxv2(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             encoded_prompt = urllib.parse.quote(prompt)
             api_url = f"https://www.lastroom.ct.ws/ai-image/?prompt={encoded_prompt}"
             
-            response = requests.get(api_url, timeout=30)
+            response = requests.get(api_url, timeout=30, verify=False)
             
             if response.status_code == 200:
                 # Get image URL from response
