@@ -5,7 +5,6 @@ from typing import Optional
 import logging
 import sys
 import urllib3
-import execjs
 from bs4 import BeautifulSoup
 import re
 
@@ -33,36 +32,19 @@ class LastroomAPI:
             'Accept-Language': 'en-US,en;q=0.5',
             'Connection': 'keep-alive',
         }
-        # Cookie'leri saklamak için session kullan
         self.session = requests.Session()
 
-    def _get_aes_js(self):
-        """AES JavaScript kodunu al"""
-        try:
-            response = self.session.get("https://www.lastroom.ct.ws/aes.js", verify=False)
-            return response.text
-        except Exception as e:
-            logger.error(f"AES.js alınamadı: {str(e)}")
-            return None
-
-    def _follow_redirect(self, html_content):
+    def _follow_redirect(self, html_content, prompt):
         """JavaScript yönlendirmesini takip et"""
         try:
-            soup = BeautifulSoup(html_content, 'html.parser')
-            script = soup.find('script', string=re.compile('location.href'))
+            # Direkt olarak i=1 parametresi eklenmiş URL'yi dene
+            redirect_url = f"{self.base_url}?prompt={prompt}&i=1"
+            logger.info(f"Yönlendirme URL'i: {redirect_url}")
             
-            if script:
-                # URL'yi çıkar
-                match = re.search(r'location\.href="([^"]+)"', script.string)
-                if match:
-                    redirect_url = match.group(1)
-                    logger.info(f"Yönlendirme URL'i bulundu: {redirect_url}")
-                    
-                    # Cookie'leri kullanarak yönlendirmeyi takip et
-                    response = self.session.get(redirect_url, headers=self.headers, verify=False)
-                    return response
+            # Cookie'leri kullanarak yönlendirmeyi takip et
+            response = self.session.get(redirect_url, headers=self.headers, verify=False)
+            return response
             
-            return None
         except Exception as e:
             logger.error(f"Yönlendirme hatası: {str(e)}")
             return None
@@ -83,10 +65,11 @@ class LastroomAPI:
             
             if response.status_code == 200:
                 # Yönlendirmeyi takip et
-                redirect_response = self._follow_redirect(response.text)
+                redirect_response = self._follow_redirect(response.text, prompt)
                 
                 if redirect_response and redirect_response.status_code == 200:
                     logger.info("Yönlendirme başarılı")
+                    logger.info(f"Yanıt içeriği: {redirect_response.text[:200]}...")
                     
                     # Resim URL'ini bul
                     soup = BeautifulSoup(redirect_response.text, 'html.parser')
