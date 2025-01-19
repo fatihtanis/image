@@ -1270,7 +1270,8 @@ async def generate_lux(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 'prompt': user_text
             }
             
-            response = requests.get(LASTROOM_API, params=params, timeout=30)
+            # Disable SSL verification for this request
+            response = requests.get(LASTROOM_API, params=params, timeout=30, verify=False)
             logger.info(f"Lastroom API Response: {response.text}")
             
             if response.status_code == 200:
@@ -1280,8 +1281,8 @@ async def generate_lux(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     image_url = data["images"][0]
                     
                     try:
-                        # Download and send the image
-                        image_response = requests.get(image_url, timeout=30)
+                        # Download and send the image (also disable SSL verification for image download)
+                        image_response = requests.get(image_url, timeout=30, verify=False)
                         if image_response.status_code == 200:
                             # Send the image
                             await update.message.reply_photo(
