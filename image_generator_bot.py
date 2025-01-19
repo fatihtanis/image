@@ -66,7 +66,7 @@ MUSIC_API_BASE = "https://jiosaavn-api-codyandersan.vercel.app/search/all"
 WHOIS_API_BASE = "https://rdap.org/domain/"
 AUDD_API_URL = "https://api.audd.io/"
 TMDB_API_BASE = "https://api.themoviedb.org/3"
-CUSTOM_API_URL = "https://www.lastroom.ct.ws/ai-image/api.php"  # Custom image generation API URL
+CUSTOM_API_URL = "http://www.lastroom.ct.ws/ai-image/api.php"  # Changed from HTTPS to HTTP
 
 # Film türleri
 MOVIE_GENRES = {
