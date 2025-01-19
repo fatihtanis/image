@@ -16,6 +16,15 @@ import json
 from typing import Optional, Dict, Any, List
 import speedtest
 from requests_toolbelt.multipart.encoder import MultipartEncoder
+import urllib3
+
+# Disable SSL warnings
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# Configure requests session
+session = requests.Session()
+session.verify = False
+session.trust_env = False
 
 # Enable logging with file output
 logging.basicConfig(
@@ -1270,26 +1279,29 @@ async def generate_custom(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             # Make request to the custom API
             api_url = f"{CUSTOM_API_URL}?prompt={encoded_prompt}"
-            response = requests.get(api_url, timeout=30, verify=False)  # SSL doğrulamayı devre dışı bırak
+            response = session.get(api_url, timeout=30)
             
             if response.status_code == 200:
-                data = response.json()
-                if data.get("success") and data.get("images"):
-                    # Get the image URL from the response
-                    image_url = data["images"][0]
-                    
-                    # Send the image
-                    await update.message.reply_photo(
-                        photo=image_url,
-                        caption=(
-                            f"🎨 İşte oluşturduğum resim!\n\n"
-                            f"📝 Prompt: {prompt}"
+                try:
+                    data = response.json()
+                    if data.get("success") and data.get("images"):
+                        # Get the image URL from the response
+                        image_url = data["images"][0]
+                        
+                        # Send the image
+                        await update.message.reply_photo(
+                            photo=image_url,
+                            caption=(
+                                f"🎨 İşte oluşturduğum resim!\n\n"
+                                f"📝 Prompt: {prompt}"
+                            )
                         )
-                    )
-                else:
-                    raise Exception("API yanıtı geçersiz")
+                    else:
+                        raise Exception(f"API yanıtı geçersiz: {data}")
+                except json.JSONDecodeError as e:
+                    raise Exception(f"API yanıtı JSON formatında değil: {response.text}")
             else:
-                raise Exception(f"HTTP {response.status_code}")
+                raise Exception(f"HTTP {response.status_code}: {response.text}")
                 
         except Exception as e:
             logger.error(f"Custom API generation error: {str(e)}")
