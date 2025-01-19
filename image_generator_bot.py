@@ -618,27 +618,31 @@ async def generate_fluxv2(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         try:
             # Make request to the API
             encoded_prompt = urllib.parse.quote(prompt)
-            api_url = f"https://www.lastroom.ct.ws/ai-image/?prompt={encoded_prompt}"
+            api_url = f"https://www.lastroom.ct.ws/ai-image/api.php?prompt={encoded_prompt}"
             
             response = requests.get(api_url, timeout=30, verify=False)
+            logger.info(f"API Response Status: {response.status_code}")
+            logger.info(f"API Response Content: {response.text}")
             
             if response.status_code == 200:
-                # Get image URL from response
-                data = response.json()
-                if data and isinstance(data, list) and len(data) > 0:
-                    image_url = data[0]
-                    
-                    # Send the generated image
-                    await context.bot.send_photo(
-                        chat_id=update.effective_chat.id,
-                        photo=image_url,
-                        caption=f"🎨 Prompt: {prompt}"
-                    )
-                else:
-                    await update.message.reply_text("❌ Resim oluşturulamadı. Lütfen tekrar deneyin.")
+                try:
+                    # Try to get image URL from response
+                    image_url = response.text.strip()
+                    if image_url:
+                        # Send the generated image
+                        await context.bot.send_photo(
+                            chat_id=update.effective_chat.id,
+                            photo=image_url,
+                            caption=f"🎨 Prompt: {prompt}"
+                        )
+                    else:
+                        await update.message.reply_text("❌ API'den boş yanıt geldi. Lütfen tekrar deneyin.")
+                except Exception as e:
+                    logger.error(f"Image processing error: {str(e)}")
+                    await update.message.reply_text("❌ Resim işlenirken hata oluştu. Lütfen tekrar deneyin.")
             else:
                 await update.message.reply_text(
-                    "❌ API yanıt vermedi.\n"
+                    f"❌ API yanıt vermedi (HTTP {response.status_code}).\n"
                     "Lütfen daha sonra tekrar deneyin."
                 )
                 
