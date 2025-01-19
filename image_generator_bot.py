@@ -16,10 +16,6 @@ import json
 from typing import Optional, Dict, Any, List
 import speedtest
 from requests_toolbelt.multipart.encoder import MultipartEncoder
-import urllib3
-import time
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 
 # Enable logging with file output
 logging.basicConfig(
@@ -61,21 +57,7 @@ MUSIC_API_BASE = "https://jiosaavn-api-codyandersan.vercel.app/search/all"
 WHOIS_API_BASE = "https://rdap.org/domain/"
 AUDD_API_URL = "https://api.audd.io/"
 TMDB_API_BASE = "https://api.themoviedb.org/3"
-LASTROOM_API_BASE = "https://www.lastroom.ct.ws/ai-image"
-
-# Session for Lastroom API with retry strategy
-retry_strategy = Retry(
-    total=3,  # number of retries
-    backoff_factor=1,  # wait 1, 2, 4 seconds between retries
-    status_forcelist=[500, 502, 503, 504, 404],  # HTTP status codes to retry on
-)
-lastroom_session = requests.Session()
-lastroom_session.verify = False  # Disable SSL verification for Lastroom API
-lastroom_session.mount("https://", HTTPAdapter(max_retries=retry_strategy))
-lastroom_session.mount("http://", HTTPAdapter(max_retries=retry_strategy))
-
-# Suppress only the single InsecureRequestWarning from urllib3
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+CUSTOM_API_URL = "https://www.lastroom.ct.ws/ai-image/api.php"  # Custom image generation API URL
 
 # Film türleri
 MOVIE_GENRES = {
@@ -110,33 +92,41 @@ user_flux_counts: Dict[int, Dict[str, int]] = defaultdict(lambda: {"count": 0, "
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send a message when the command /start is issued."""
-    user = update.effective_user
-    await update.message.reply_html(
-        f"Merhaba {user.mention_html()}! 👋\n\n"
-        "🤖 Ben çok fonksiyonlu bir botum. İşte yapabildiğim şeyler:\n\n"
-        "🎨 <b>Resim Komutları:</b>\n"
-        "- /dalle [açıklama] - DALL-E 3 ile resim oluştur\n"
-        "- /flux [açıklama] - Stable Diffusion ile resim oluştur\n"
-        "- /lastroom [açıklama] - Lastroom AI ile resim oluştur\n"
-        "- /upscale - Son gönderilen resmi yüksek çözünürlüğe çıkar\n\n"
-        "🎬 <b>Film Komutları:</b>\n"
-        "- /genre [tür] - Belirli bir türdeki filmleri listele\n"
-        "- /similar [film adı] - Benzer filmleri bul\n\n"
-        "🎵 <b>Müzik Komutları:</b>\n"
-        "- /song [şarkı adı] - Şarkı ara ve indir\n"
-        "- Ses kaydı gönder - Şarkıyı tanı\n\n"
-        "📥 <b>İndirme Komutları:</b>\n"
-        "- /yt [link] - YouTube videosu indir\n\n"
-        "🛠 <b>Diğer Komutlar:</b>\n"
-        "- /whois [domain] - Domain bilgisi sorgula\n"
-        "- /speedtest - İnternet hız testi yap\n\n"
-        "⚠️ <b>Limitler:</b>\n"
-        "- Dakikada maksimum 5 istek\n"
-        "- Maksimum prompt uzunluğu: 500 karakter\n"
-        "- YouTube video limiti: 100MB\n\n"
-        "🔄 Her komut için örnek kullanımı görmek için komutu parametresiz gönderebilirsiniz.\n"
-        "❓ Sorun yaşarsanız @yourusername ile iletişime geçebilirsiniz."
-    )
+    try:
+        user_name = update.message.from_user.first_name
+        await update.message.reply_text(
+            f'Merhaba {user_name}! 👋\n\n'
+            f'🎨 Resim Komutları:\n'
+            f'1. DALL-E 3 ile resim: /dalle [açıklama]\n'
+            f'2. Flux ile resim: /flux [açıklama]\n'
+            f'3. Resim iyileştirme: /upscale (resmi yanıtlayarak)\n\n'
+            f'🎬 Film Komutları:\n'
+            f'1. Film türüne göre öneriler: /genre [tür]\n'
+            f'2. Benzer film önerileri: /similar [film adı]\n\n'
+            f'🎵 Müzik Komutları:\n'
+            f'1. Şarkı aramak için: /song [şarkı adı]\n'
+            f'2. Müzik tanımak için: Ses kaydı veya müzik dosyası gönderin\n\n'
+            f'📥 İndirme Komutları:\n'
+            f'1. YouTube indirmek için: /yt [video linki]\n\n'
+            f'🛠️ Diğer Komutlar:\n'
+            f'1. Domain sorgulamak için: /whois [domain.com]\n'
+            f'2. İnternet hız testi: /speedtest\n\n'
+            f'📝 Örnekler:\n'
+            f'• /dalle bir adam denizde yüzüyor 🎨\n'
+            f'• /genre korku 🎬\n'
+            f'• /similar Matrix 🎬\n'
+            f'• /song Hadise Aşk Kaç Beden Giyer 🎵\n'
+            f'• /whois google.com 🔍\n'
+            f'• /yt https://youtube.com/watch?v=... 📥\n\n'
+            f'⚠️ Limitler:\n'
+            f'• Dakikada {MAX_REQUESTS_PER_MINUTE} resim oluşturabilirsiniz\n'
+            f'• Günlük {FLUX_DAILY_LIMIT} Flux resim hakkı\n'
+            f'• Günlük {UPSCALE_DAILY_LIMIT} resim iyileştirme hakkı\n'
+            f'• Maksimum {MAX_PROMPT_LENGTH} karakter uzunluğunda açıklama'
+        )
+    except Exception as e:
+        logger.error(f"Start command error: {str(e)}")
+        await update.message.reply_text("Bir hata oluştu. Lütfen tekrar deneyin.")
 
 def extract_video_id(url):
     """Extract video ID from various YouTube URL formats."""
@@ -1237,14 +1227,14 @@ async def similar_movies(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Similar movies error: {str(e)}")
         await update.message.reply_text("Bir hata oluştu. Lütfen tekrar deneyin.")
 
-async def generate_lastroom(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Generate an image using Lastroom API."""
+async def generate_custom(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Generate an image using custom API."""
     try:
         # Check if user provided text
         if not context.args:
             await update.message.reply_text(
                 "Lütfen bir açıklama girin.\n"
-                "Örnek: /lastroom bir kedi"
+                "Örnek: /custom girl"
             )
             return
         
@@ -1260,10 +1250,10 @@ async def generate_lastroom(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         
         # Get the text after the command
-        user_text = ' '.join(context.args)
+        prompt = ' '.join(context.args)
         
         # Check prompt length
-        if len(user_text) > MAX_PROMPT_LENGTH:
+        if len(prompt) > MAX_PROMPT_LENGTH:
             await update.message.reply_text(
                 f"Açıklama çok uzun! Maksimum {MAX_PROMPT_LENGTH} karakter girebilirsiniz."
             )
@@ -1271,71 +1261,38 @@ async def generate_lastroom(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Send a "processing" message
         processing_message = await update.message.reply_text(
-            "🎨 Lastroom AI ile resim oluşturuluyor..."
+            "🎨 Resim oluşturuluyor..."
         )
         
         try:
-            # Encode the user's text for the URL
-            encoded_text = urllib.parse.quote(user_text)
+            # Encode the prompt for URL
+            encoded_prompt = urllib.parse.quote(prompt)
             
-            # First request to get the JavaScript code
-            url = f"{LASTROOM_API_BASE}/?prompt={encoded_text}"
+            # Make request to the custom API
+            api_url = f"{CUSTOM_API_URL}?prompt={encoded_prompt}"
+            response = requests.get(api_url, timeout=30)
             
-            max_retries = 3
-            retry_delay = 2  # seconds
-            
-            for attempt in range(max_retries):
-                try:
-                    response = lastroom_session.get(url, timeout=30)
-                    if response.status_code == 200:
-                        # Get cookies from response
-                        cookies = response.cookies
-                        
-                        # Make second request with cookies
-                        url_with_i = f"{url}&i=1"
-                        response = lastroom_session.get(url_with_i, cookies=cookies, timeout=30)
-                        
-                        if response.status_code == 200 and response.content:
-                            # Send the image
-                            await update.message.reply_photo(
-                                photo=response.content,
-                                caption=(
-                                    f"🎨 İşte Lastroom AI ile oluşturduğum resim!\n\n"
-                                    f"📝 Prompt: {user_text}"
-                                )
-                            )
-                            break
-                        else:
-                            raise Exception(f"HTTP {response.status_code}")
-                    else:
-                        raise Exception(f"HTTP {response.status_code}")
-                        
-                except (requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout) as e:
-                    if attempt == max_retries - 1:  # Last attempt
-                        raise
-                    logger.warning(f"Lastroom retry {attempt + 1}/{max_retries}: {str(e)}")
-                    time.sleep(retry_delay * (attempt + 1))  # Exponential backoff
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("success") and data.get("images"):
+                    # Get the image URL from the response
+                    image_url = data["images"][0]
                     
-        except requests.exceptions.SSLError as e:
-            logger.error(f"Lastroom SSL error: {str(e)}")
-            await update.message.reply_text(
-                "❌ SSL bağlantı hatası oluştu.\n"
-                "Lütfen daha sonra tekrar deneyin."
-            )
-        except (requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout) as e:
-            logger.error(f"Lastroom connection error: {str(e)}")
-            await update.message.reply_text(
-                "❌ Bağlantı zaman aşımına uğradı.\n"
-                "Lütfen daha sonra tekrar deneyin."
-            )
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Lastroom request error: {str(e)}")
-            await update.message.reply_text(
-                "❌ Bağlantı hatası oluştu.\n"
-                "Lütfen daha sonra tekrar deneyin."
-            )
+                    # Send the image
+                    await update.message.reply_photo(
+                        photo=image_url,
+                        caption=(
+                            f"🎨 İşte oluşturduğum resim!\n\n"
+                            f"📝 Prompt: {prompt}"
+                        )
+                    )
+                else:
+                    raise Exception("API yanıtı geçersiz")
+            else:
+                raise Exception(f"HTTP {response.status_code}")
+                
         except Exception as e:
-            logger.error(f"Lastroom generation error: {str(e)}")
+            logger.error(f"Custom API generation error: {str(e)}")
             await update.message.reply_text(
                 "❌ Resim oluşturulurken bir hata oluştu.\n"
                 "Lütfen daha sonra tekrar deneyin."
@@ -1345,7 +1302,7 @@ async def generate_lastroom(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await processing_message.delete()
             
     except Exception as e:
-        logger.error(f"Lastroom command error: {str(e)}")
+        logger.error(f"Custom command error: {str(e)}")
         await update.message.reply_text("Bir hata oluştu. Lütfen tekrar deneyin.")
 
 def main():
@@ -1359,6 +1316,7 @@ def main():
             CommandHandler("start", start),
             CommandHandler("dalle", generate_dalle),
             CommandHandler("flux", generate_flux),
+            CommandHandler("custom", generate_custom),  # Yeni komut eklendi
             CommandHandler("song", search_song),
             CommandHandler("whois", whois_lookup),
             CommandHandler("yt", youtube_command),
@@ -1366,7 +1324,6 @@ def main():
             CommandHandler("upscale", upscale_image),
             CommandHandler("genre", genre_movies),
             CommandHandler("similar", similar_movies),
-            CommandHandler("lastroom", generate_lastroom),
             CallbackQueryHandler(youtube_button),
             MessageHandler(filters.VOICE | filters.AUDIO, recognize_music)
         ]
@@ -1379,7 +1336,7 @@ def main():
         logger.info("Bot configuration:")
         logger.info(f"- Maximum requests per minute: {MAX_REQUESTS_PER_MINUTE}")
         logger.info(f"- Maximum prompt length: {MAX_PROMPT_LENGTH}")
-        logger.info("- Available commands: start, dalle, flux, song, whois, yt, speedtest, upscale, genre, similar, lastroom")
+        logger.info("- Available commands: start, dalle, flux, song, whois, yt, speedtest, upscale, genre, similar")
         logger.info("- Music recognition enabled: Yes")
         logger.info("Bot started successfully!")
 
