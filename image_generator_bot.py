@@ -1270,7 +1270,7 @@ async def generate_custom(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             # Make request to the custom API
             api_url = f"{CUSTOM_API_URL}?prompt={encoded_prompt}"
-            response = requests.get(api_url, timeout=30)
+            response = requests.get(api_url, timeout=30, verify=False)  # SSL doğrulamayı devre dışı bırak
             
             if response.status_code == 200:
                 data = response.json()
