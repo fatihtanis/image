@@ -16,6 +16,7 @@ import json
 from typing import Optional, Dict, Any, List
 import speedtest
 from requests_toolbelt.multipart.encoder import MultipartEncoder
+import urllib3
 
 # Enable logging with file output
 logging.basicConfig(
@@ -61,6 +62,10 @@ LASTROOM_API_BASE = "https://www.lastroom.ct.ws/ai-image"
 
 # Session for Lastroom API
 lastroom_session = requests.Session()
+lastroom_session.verify = False  # Disable SSL verification for Lastroom API
+
+# Suppress only the single InsecureRequestWarning from urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Film türleri
 MOVIE_GENRES = {
@@ -1275,10 +1280,10 @@ async def generate_lastroom(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 url_with_i = f"{url}&i=1"
                 response = lastroom_session.get(url_with_i, cookies=cookies, timeout=30)
                 
-                if response.status_code == 200:
+                if response.status_code == 200 and response.content:
                     # Send the image
                     await update.message.reply_photo(
-                        photo=response.url,
+                        photo=response.content,
                         caption=(
                             f"🎨 İşte Lastroom AI ile oluşturduğum resim!\n\n"
                             f"📝 Prompt: {user_text}"
@@ -1289,6 +1294,18 @@ async def generate_lastroom(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 raise Exception(f"HTTP {response.status_code}")
                 
+        except requests.exceptions.SSLError as e:
+            logger.error(f"Lastroom SSL error: {str(e)}")
+            await update.message.reply_text(
+                "❌ SSL bağlantı hatası oluştu.\n"
+                "Lütfen daha sonra tekrar deneyin."
+            )
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Lastroom request error: {str(e)}")
+            await update.message.reply_text(
+                "❌ Bağlantı hatası oluştu.\n"
+                "Lütfen daha sonra tekrar deneyin."
+            )
         except Exception as e:
             logger.error(f"Lastroom generation error: {str(e)}")
             await update.message.reply_text(
