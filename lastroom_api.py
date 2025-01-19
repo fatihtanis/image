@@ -45,23 +45,40 @@ class LastroomAPI:
         }
         self.session = requests.Session()
 
-    def _get_image_url(self, html_content):
-        """HTML içeriğinden resim URL'ini çıkar"""
+    def _extract_tmpfiles_url(self, content):
+        """Şifrelenmiş içerikten tmpfiles URL'ini çıkar"""
         try:
-            soup = BeautifulSoup(html_content, 'html.parser')
-            
-            # Tüm img etiketlerini kontrol et
-            for img in soup.find_all('img'):
-                src = img.get('src', '')
-                if src and ('result' in src.lower() or 'output' in src.lower() or 'generated' in src.lower()):
-                    if not src.startswith('http'):
-                        src = f"https://www.lastroom.ct.ws{src}"
-                    logger.info(f"Resim URL'i bulundu: {src}")
-                    return src
+            # Tmpfiles URL'ini bulmak için regex
+            pattern = r'tmpfiles\.org/[a-zA-Z0-9/\-_.]+'
+            match = re.search(pattern, content)
+            if match:
+                url = f"https://{match.group(0)}"
+                logger.info(f"Tmpfiles URL'i bulundu: {url}")
+                return url
+            return None
+        except Exception as e:
+            logger.error(f"Tmpfiles URL çıkarma hatası: {str(e)}")
+            return None
+
+    def _get_image_from_tmpfiles(self, tmpfiles_url):
+        """Tmpfiles sayfasından resim URL'ini al"""
+        try:
+            response = self.session.get(tmpfiles_url, headers=self.headers, verify=False)
+            if response.status_code == 200:
+                soup = BeautifulSoup(response.text, 'html.parser')
+                
+                # Resim URL'ini bul
+                img = soup.find('img', {'id': 'img'})
+                if img and img.get('src'):
+                    image_url = img.get('src')
+                    if not image_url.startswith('http'):
+                        image_url = f"https://tmpfiles.org{image_url}"
+                    logger.info(f"Resim URL'i bulundu: {image_url}")
+                    return image_url
             
             return None
         except Exception as e:
-            logger.error(f"Resim URL'i çıkarma hatası: {str(e)}")
+            logger.error(f"Tmpfiles resim alma hatası: {str(e)}")
             return None
 
     def generate_image(self, prompt: str) -> Optional[str]:
@@ -80,27 +97,16 @@ class LastroomAPI:
             )
             
             logger.info(f"İlk yanıt kodu: {response.status_code}")
+            logger.info(f"İlk yanıt içeriği: {response.text[:200]}")
             
             if response.status_code == 200:
-                # Kısa bir bekleme
-                time.sleep(2)
+                # Tmpfiles URL'ini bul
+                tmpfiles_url = self._extract_tmpfiles_url(response.text)
+                if tmpfiles_url:
+                    # Tmpfiles'dan resmi al
+                    return self._get_image_from_tmpfiles(tmpfiles_url)
                 
-                # İkinci istek - resim sayfası
-                response = self.session.get(
-                    f"{url}&i=1",
-                    headers=self.headers,
-                    verify=False,
-                    allow_redirects=True
-                )
-                
-                if response.status_code == 200:
-                    # Resim URL'ini bul
-                    image_url = self._get_image_url(response.text)
-                    if image_url:
-                        return image_url
-                    
-                    logger.error("Resim URL'i bulunamadı")
-                    logger.info(f"Sayfa içeriği: {response.text[:500]}...")
+                logger.error("Tmpfiles URL'i bulunamadı")
             
             return None
                 
