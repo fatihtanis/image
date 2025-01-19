@@ -45,40 +45,113 @@ class LastroomAPI:
         }
         self.session = requests.Session()
 
-    def _extract_tmpfiles_url(self, content):
-        """Şifrelenmiş içerikten tmpfiles URL'ini çıkar"""
+    def _follow_all_redirects(self, url: str, max_redirects: int = 10) -> Optional[str]:
+        """Tüm yönlendirmeleri takip et ve son URL'yi döndür"""
         try:
-            # Tmpfiles URL'ini bulmak için regex
-            pattern = r'tmpfiles\.org/[a-zA-Z0-9/\-_.]+'
-            match = re.search(pattern, content)
-            if match:
-                url = f"https://{match.group(0)}"
-                logger.info(f"Tmpfiles URL'i bulundu: {url}")
-                return url
+            current_url = url
+            redirect_count = 0
+            
+            while redirect_count < max_redirects:
+                logger.info(f"URL'ye istek gönderiliyor: {current_url}")
+                
+                response = self.session.get(
+                    current_url,
+                    headers=self.headers,
+                    verify=False,
+                    allow_redirects=False  # Manuel yönlendirme takibi için
+                )
+                
+                logger.info(f"Yanıt kodu: {response.status_code}")
+                logger.info(f"Yanıt başlıkları: {dict(response.headers)}")
+                
+                # Yönlendirme var mı kontrol et
+                if response.status_code in [301, 302, 303, 307, 308]:
+                    if 'Location' in response.headers:
+                        new_url = response.headers['Location']
+                        if not new_url.startswith('http'):
+                            # Göreceli URL'yi mutlak URL'ye çevir
+                            new_url = f"https://www.lastroom.ct.ws{new_url}"
+                        logger.info(f"Yönlendirme bulundu: {new_url}")
+                        current_url = new_url
+                        redirect_count += 1
+                        continue
+                
+                # JavaScript yönlendirmesi var mı kontrol et
+                if response.status_code == 200:
+                    soup = BeautifulSoup(response.text, 'html.parser')
+                    
+                    # Meta refresh kontrolü
+                    meta_refresh = soup.find('meta', {'http-equiv': 'refresh'})
+                    if meta_refresh and 'content' in meta_refresh.attrs:
+                        content = meta_refresh['content']
+                        if 'url=' in content.lower():
+                            new_url = content.split('url=')[1].strip()
+                            logger.info(f"Meta refresh yönlendirmesi bulundu: {new_url}")
+                            current_url = new_url
+                            redirect_count += 1
+                            continue
+                    
+                    # JavaScript location.href kontrolü
+                    scripts = soup.find_all('script')
+                    for script in scripts:
+                        if script.string and 'location.href' in script.string:
+                            match = re.search(r'location\.href\s*=\s*["\']([^"\']+)["\']', script.string)
+                            if match:
+                                new_url = match.group(1)
+                                if not new_url.startswith('http'):
+                                    new_url = f"https://www.lastroom.ct.ws{new_url}"
+                                logger.info(f"JavaScript yönlendirmesi bulundu: {new_url}")
+                                current_url = new_url
+                                redirect_count += 1
+                                continue
+                    
+                    # Tmpfiles URL'i kontrolü
+                    tmpfiles_match = re.search(r'tmpfiles\.org/[a-zA-Z0-9/\-_.]+', response.text)
+                    if tmpfiles_match:
+                        new_url = f"https://{tmpfiles_match.group(0)}"
+                        logger.info(f"Tmpfiles URL'i bulundu: {new_url}")
+                        current_url = new_url
+                        redirect_count += 1
+                        continue
+                
+                # Yönlendirme yoksa son URL'yi döndür
+                return current_url
+            
+            logger.error(f"Maksimum yönlendirme sayısına ulaşıldı ({max_redirects})")
             return None
+            
         except Exception as e:
-            logger.error(f"Tmpfiles URL çıkarma hatası: {str(e)}")
+            logger.error(f"Yönlendirme takip hatası: {str(e)}")
             return None
 
-    def _get_image_from_tmpfiles(self, tmpfiles_url):
-        """Tmpfiles sayfasından resim URL'ini al"""
+    def _get_final_image_url(self, url: str) -> Optional[str]:
+        """Son URL'den resim URL'ini al"""
         try:
-            response = self.session.get(tmpfiles_url, headers=self.headers, verify=False)
+            response = self.session.get(url, headers=self.headers, verify=False)
             if response.status_code == 200:
                 soup = BeautifulSoup(response.text, 'html.parser')
                 
-                # Resim URL'ini bul
+                # Tmpfiles resmi kontrolü
                 img = soup.find('img', {'id': 'img'})
                 if img and img.get('src'):
                     image_url = img.get('src')
                     if not image_url.startswith('http'):
                         image_url = f"https://tmpfiles.org{image_url}"
-                    logger.info(f"Resim URL'i bulundu: {image_url}")
+                    logger.info(f"Tmpfiles resim URL'i bulundu: {image_url}")
                     return image_url
+                
+                # Diğer resim kontrolü
+                for img in soup.find_all('img'):
+                    src = img.get('src', '')
+                    if src and ('result' in src.lower() or 'output' in src.lower() or 'generated' in src.lower()):
+                        if not src.startswith('http'):
+                            src = f"https://www.lastroom.ct.ws{src}"
+                        logger.info(f"Resim URL'i bulundu: {src}")
+                        return src
             
             return None
         except Exception as e:
-            logger.error(f"Tmpfiles resim alma hatası: {str(e)}")
+            logger.error(f"Resim URL'i alma hatası: {str(e)}")
             return None
 
     def generate_image(self, prompt: str) -> Optional[str]:
@@ -86,27 +159,14 @@ class LastroomAPI:
         try:
             # URL'yi hazırla
             url = f"{self.base_url}?prompt={prompt}"
-            logger.info(f"İstek URL'i: {url}")
+            logger.info(f"Başlangıç URL'i: {url}")
             
-            # İlk istek - ana sayfa
-            response = self.session.get(
-                url,
-                headers=self.headers,
-                verify=False,
-                allow_redirects=True
-            )
-            
-            logger.info(f"İlk yanıt kodu: {response.status_code}")
-            logger.info(f"İlk yanıt içeriği: {response.text[:200]}")
-            
-            if response.status_code == 200:
-                # Tmpfiles URL'ini bul
-                tmpfiles_url = self._extract_tmpfiles_url(response.text)
-                if tmpfiles_url:
-                    # Tmpfiles'dan resmi al
-                    return self._get_image_from_tmpfiles(tmpfiles_url)
-                
-                logger.error("Tmpfiles URL'i bulunamadı")
+            # Tüm yönlendirmeleri takip et
+            final_url = self._follow_all_redirects(url)
+            if final_url:
+                logger.info(f"Son URL: {final_url}")
+                # Son URL'den resim URL'ini al
+                return self._get_final_image_url(final_url)
             
             return None
                 
