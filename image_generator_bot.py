@@ -1247,13 +1247,14 @@ async def lastroom(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         processing_message = await update.message.reply_text("🎨 Resim oluşturuluyor...")
         
         # Resmi oluştur
-        result = lastroom_api.generate_image(prompt)
+        image_url = lastroom_api.generate_image(prompt)
         
-        if result:
+        if image_url:
             # Başarılı olursa resmi gönder
-            await update.message.reply_text(f"✨ Resim oluşturuldu!\n🎯 Prompt: {prompt}")
-            # TODO: Resim URL'ini bul ve gönder
-            # await update.message.reply_photo(photo=image_url)
+            await update.message.reply_photo(
+                photo=image_url,
+                caption=f"✨ Resim oluşturuldu!\n🎯 Prompt: {prompt}"
+            )
         else:
             await update.message.reply_text("❌ Resim oluşturulamadı. Lütfen tekrar deneyin.")
         

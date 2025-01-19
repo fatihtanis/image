@@ -5,6 +5,9 @@ from typing import Optional
 import logging
 import sys
 import urllib3
+import execjs
+from bs4 import BeautifulSoup
+import re
 
 # SSL uyarılarını devre dışı bırak
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -30,65 +33,79 @@ class LastroomAPI:
             'Accept-Language': 'en-US,en;q=0.5',
             'Connection': 'keep-alive',
         }
+        # Cookie'leri saklamak için session kullan
+        self.session = requests.Session()
+
+    def _get_aes_js(self):
+        """AES JavaScript kodunu al"""
+        try:
+            response = self.session.get("https://www.lastroom.ct.ws/aes.js", verify=False)
+            return response.text
+        except Exception as e:
+            logger.error(f"AES.js alınamadı: {str(e)}")
+            return None
+
+    def _follow_redirect(self, html_content):
+        """JavaScript yönlendirmesini takip et"""
+        try:
+            soup = BeautifulSoup(html_content, 'html.parser')
+            script = soup.find('script', string=re.compile('location.href'))
+            
+            if script:
+                # URL'yi çıkar
+                match = re.search(r'location\.href="([^"]+)"', script.string)
+                if match:
+                    redirect_url = match.group(1)
+                    logger.info(f"Yönlendirme URL'i bulundu: {redirect_url}")
+                    
+                    # Cookie'leri kullanarak yönlendirmeyi takip et
+                    response = self.session.get(redirect_url, headers=self.headers, verify=False)
+                    return response
+            
+            return None
+        except Exception as e:
+            logger.error(f"Yönlendirme hatası: {str(e)}")
+            return None
 
     def generate_image(self, prompt: str) -> Optional[str]:
-        """
-        Verilen prompt ile resim oluşturur.
-        
-        Args:
-            prompt (str): Resim oluşturmak için metin
-            
-        Returns:
-            Optional[str]: Oluşturulan resmin URL'i veya None
-        """
+        """Verilen prompt ile resim oluşturur"""
         try:
-            # API isteği için parametreler
-            params = {
-                'prompt': prompt
-            }
-            
-            # API isteği gönder
-            logger.info(f"API isteği gönderiliyor. Prompt: {prompt}")
-            response = requests.get(
+            # İlk istek
+            params = {'prompt': prompt}
+            response = self.session.get(
                 self.base_url,
                 params=params,
                 headers=self.headers,
-                timeout=30,
-                verify=False  # SSL doğrulamasını devre dışı bırak
+                verify=False
             )
             
-            # Yanıt durumunu logla
-            logger.info(f"API yanıt kodu: {response.status_code}")
-            logger.info(f"API yanıtı: {response.text[:200]}...")  # İlk 200 karakteri logla
+            logger.info(f"İlk yanıt kodu: {response.status_code}")
             
             if response.status_code == 200:
-                logger.info("Başarılı yanıt alındı, HTML içeriği parse ediliyor...")
-                # HTML içeriğini parse et
-                from bs4 import BeautifulSoup
-                soup = BeautifulSoup(response.text, 'html.parser')
+                # Yönlendirmeyi takip et
+                redirect_response = self._follow_redirect(response.text)
                 
-                # JavaScript içeriğini ve olası resim URL'lerini logla
-                scripts = soup.find_all('script')
-                for script in scripts:
-                    logger.info(f"Script içeriği: {script.string if script.string else 'Boş script'}")
-                
-                images = soup.find_all('img')
-                for img in images:
-                    logger.info(f"Resim URL'i bulundu: {img.get('src', 'URL bulunamadı')}")
-                
-                return response.text
-            else:
-                logger.error(f"API hatası: {response.status_code}")
-                return None
-                
-        except requests.Timeout:
-            logger.error("API zaman aşımına uğradı")
+                if redirect_response and redirect_response.status_code == 200:
+                    logger.info("Yönlendirme başarılı")
+                    
+                    # Resim URL'ini bul
+                    soup = BeautifulSoup(redirect_response.text, 'html.parser')
+                    img_tag = soup.find('img', {'class': 'result-image'})
+                    
+                    if img_tag and img_tag.get('src'):
+                        image_url = img_tag.get('src')
+                        if not image_url.startswith('http'):
+                            image_url = f"https://www.lastroom.ct.ws{image_url}"
+                        logger.info(f"Resim URL'i bulundu: {image_url}")
+                        return image_url
+                    
+                    logger.error("Resim URL'i bulunamadı")
+                    return None
+            
             return None
-        except requests.RequestException as e:
-            logger.error(f"API isteği hatası: {str(e)}")
-            return None
+                
         except Exception as e:
-            logger.error(f"Beklenmeyen hata: {str(e)}")
+            logger.error(f"API hatası: {str(e)}")
             return None
 
 def main():
