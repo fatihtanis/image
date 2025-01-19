@@ -57,7 +57,7 @@ MUSIC_API_BASE = "https://jiosaavn-api-codyandersan.vercel.app/search/all"
 WHOIS_API_BASE = "https://rdap.org/domain/"
 AUDD_API_URL = "https://api.audd.io/"
 TMDB_API_BASE = "https://api.themoviedb.org/3"
-GEMINI_API_BASE = "https://www.lastroom.ct.ws/gemini-pro"
+GEMINI_API_BASE = "http://www.lastroom.ct.ws/gemini-pro"
 
 # Film türleri
 MOVIE_GENRES = {
@@ -120,7 +120,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f'• /song Hadise Aşk Kaç Beden Giyer 🎵\n'
             f'• /chat Yapay zeka nedir? 🤖\n'
             f'• /whois google.com 🔍\n'
-            f'• /yt https://youtube.com/watch?v=... 📥\n\n'
+            f'• /yt https://youtube.com/watch?v=... ��\n\n'
             f'⚠️ Limitler:\n'
             f'• Dakikada {MAX_REQUESTS_PER_MINUTE} resim oluşturabilirsiniz\n'
             f'• Günlük {FLUX_DAILY_LIMIT} Flux resim hakkı\n'
@@ -1259,8 +1259,13 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 'temperature': 0.7
             }
             
-            # Make request to Gemini API
-            response = requests.get(GEMINI_API_BASE, params=params, timeout=30)
+            # Make request to Gemini API with SSL verification disabled
+            response = requests.get(
+                GEMINI_API_BASE, 
+                params=params, 
+                timeout=30,
+                verify=False  # Disable SSL verification
+            )
             
             if response.status_code == 200:
                 data = response.json()
