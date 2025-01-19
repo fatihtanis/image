@@ -16,15 +16,6 @@ import json
 from typing import Optional, Dict, Any, List
 import speedtest
 from requests_toolbelt.multipart.encoder import MultipartEncoder
-import urllib3
-
-# Disable SSL warnings
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-# Configure requests session
-session = requests.Session()
-session.verify = False
-session.trust_env = False
 
 # Enable logging with file output
 logging.basicConfig(
@@ -66,7 +57,6 @@ MUSIC_API_BASE = "https://jiosaavn-api-codyandersan.vercel.app/search/all"
 WHOIS_API_BASE = "https://rdap.org/domain/"
 AUDD_API_URL = "https://api.audd.io/"
 TMDB_API_BASE = "https://api.themoviedb.org/3"
-CUSTOM_API_URL = "http://www.lastroom.ct.ws/ai-image/api.php"  # Changed from HTTPS to HTTP
 
 # Film türleri
 MOVIE_GENRES = {
@@ -603,6 +593,72 @@ async def generate_flux(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     except Exception as e:
         logger.error(f"Flux generation error: {str(e)}")
         await update.message.reply_text("❌ Bir hata oluştu. Lütfen tekrar deneyin.")
+
+async def generate_fluxv2(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Generate an image using Lastroom API."""
+    try:
+        # Get the prompt from message
+        if not context.args:
+            await update.message.reply_text("❌ Lütfen bir açıklama girin.\nÖrnek: /fluxv2 bir kedi ağaca tırmanıyor")
+            return
+
+        prompt = " ".join(context.args)
+        
+        if len(prompt) > MAX_PROMPT_LENGTH:
+            await update.message.reply_text(f"❌ Açıklama çok uzun! Maksimum {MAX_PROMPT_LENGTH} karakter girebilirsiniz.")
+            return
+
+        # Send processing message
+        processing_msg = await update.message.reply_text("🎨 Resim oluşturuluyor...")
+
+        try:
+            # Make request to the API
+            encoded_prompt = urllib.parse.quote(prompt)
+            api_url = f"https://www.lastroom.ct.ws/ai-image/?prompt={encoded_prompt}"
+            
+            response = requests.get(api_url, timeout=30)
+            
+            if response.status_code == 200:
+                # Get image URL from response
+                data = response.json()
+                if data and isinstance(data, list) and len(data) > 0:
+                    image_url = data[0]
+                    
+                    # Send the generated image
+                    await context.bot.send_photo(
+                        chat_id=update.effective_chat.id,
+                        photo=image_url,
+                        caption=f"🎨 Prompt: {prompt}"
+                    )
+                else:
+                    await update.message.reply_text("❌ Resim oluşturulamadı. Lütfen tekrar deneyin.")
+            else:
+                await update.message.reply_text(
+                    "❌ API yanıt vermedi.\n"
+                    "Lütfen daha sonra tekrar deneyin."
+                )
+                
+        except requests.Timeout:
+            await update.message.reply_text(
+                "⏰ API yanıt vermedi, lütfen tekrar deneyin."
+            )
+        except requests.RequestException as e:
+            logger.error(f"Image API request error: {str(e)}")
+            await update.message.reply_text(
+                "🔌 Bağlantı hatası oluştu, lütfen tekrar deneyin."
+            )
+        except Exception as e:
+            logger.error(f"Image generation error: {str(e)}")
+            await update.message.reply_text(
+                "⚠️ Beklenmeyen bir hata oluştu, lütfen tekrar deneyin."
+            )
+        
+        finally:
+            await processing_msg.delete()
+            
+    except Exception as e:
+        logger.error(f"FluxV2 command error: {str(e)}")
+        await update.message.reply_text("Bir hata oluştu. Lütfen tekrar deneyin.")
 
 async def whois_lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Look up WHOIS information for a domain."""
@@ -1236,87 +1292,6 @@ async def similar_movies(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Similar movies error: {str(e)}")
         await update.message.reply_text("Bir hata oluştu. Lütfen tekrar deneyin.")
 
-async def generate_custom(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Generate an image using custom API."""
-    try:
-        # Check if user provided text
-        if not context.args:
-            await update.message.reply_text(
-                "Lütfen bir açıklama girin.\n"
-                "Örnek: /custom girl"
-            )
-            return
-        
-        # Get user ID for rate limiting
-        user_id = update.effective_user.id
-        
-        # Check rate limit
-        if not check_rate_limit(user_id):
-            remaining_time = 60 - (datetime.now() - USER_RATES[user_id][0]).seconds
-            await update.message.reply_text(
-                f"Çok fazla istek gönderdiniz. Lütfen {remaining_time} saniye bekleyin."
-            )
-            return
-        
-        # Get the text after the command
-        prompt = ' '.join(context.args)
-        
-        # Check prompt length
-        if len(prompt) > MAX_PROMPT_LENGTH:
-            await update.message.reply_text(
-                f"Açıklama çok uzun! Maksimum {MAX_PROMPT_LENGTH} karakter girebilirsiniz."
-            )
-            return
-        
-        # Send a "processing" message
-        processing_message = await update.message.reply_text(
-            "🎨 Resim oluşturuluyor..."
-        )
-        
-        try:
-            # Encode the prompt for URL
-            encoded_prompt = urllib.parse.quote(prompt)
-            
-            # Make request to the custom API
-            api_url = f"{CUSTOM_API_URL}?prompt={encoded_prompt}"
-            response = session.get(api_url, timeout=30)
-            
-            if response.status_code == 200:
-                try:
-                    data = response.json()
-                    if data.get("success") and data.get("images"):
-                        # Get the image URL from the response
-                        image_url = data["images"][0]
-                        
-                        # Send the image
-                        await update.message.reply_photo(
-                            photo=image_url,
-                            caption=(
-                                f"🎨 İşte oluşturduğum resim!\n\n"
-                                f"📝 Prompt: {prompt}"
-                            )
-                        )
-                    else:
-                        raise Exception(f"API yanıtı geçersiz: {data}")
-                except json.JSONDecodeError as e:
-                    raise Exception(f"API yanıtı JSON formatında değil: {response.text}")
-            else:
-                raise Exception(f"HTTP {response.status_code}: {response.text}")
-                
-        except Exception as e:
-            logger.error(f"Custom API generation error: {str(e)}")
-            await update.message.reply_text(
-                "❌ Resim oluşturulurken bir hata oluştu.\n"
-                "Lütfen daha sonra tekrar deneyin."
-            )
-        
-        finally:
-            await processing_message.delete()
-            
-    except Exception as e:
-        logger.error(f"Custom command error: {str(e)}")
-        await update.message.reply_text("Bir hata oluştu. Lütfen tekrar deneyin.")
-
 def main():
     """Start the bot."""
     try:
@@ -1328,7 +1303,7 @@ def main():
             CommandHandler("start", start),
             CommandHandler("dalle", generate_dalle),
             CommandHandler("flux", generate_flux),
-            CommandHandler("custom", generate_custom),  # Yeni komut eklendi
+            CommandHandler("fluxv2", generate_fluxv2),
             CommandHandler("song", search_song),
             CommandHandler("whois", whois_lookup),
             CommandHandler("yt", youtube_command),
@@ -1348,7 +1323,7 @@ def main():
         logger.info("Bot configuration:")
         logger.info(f"- Maximum requests per minute: {MAX_REQUESTS_PER_MINUTE}")
         logger.info(f"- Maximum prompt length: {MAX_PROMPT_LENGTH}")
-        logger.info("- Available commands: start, dalle, flux, song, whois, yt, speedtest, upscale, genre, similar")
+        logger.info("- Available commands: start, dalle, flux, fluxv2, song, whois, yt, speedtest, upscale, genre, similar")
         logger.info("- Music recognition enabled: Yes")
         logger.info("Bot started successfully!")
 
