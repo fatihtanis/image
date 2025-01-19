@@ -17,6 +17,9 @@ from typing import Optional, Dict, Any, List
 import speedtest
 from requests_toolbelt.multipart.encoder import MultipartEncoder
 import urllib3
+import time
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 # Enable logging with file output
 logging.basicConfig(
@@ -60,9 +63,16 @@ AUDD_API_URL = "https://api.audd.io/"
 TMDB_API_BASE = "https://api.themoviedb.org/3"
 LASTROOM_API_BASE = "https://www.lastroom.ct.ws/ai-image"
 
-# Session for Lastroom API
+# Session for Lastroom API with retry strategy
+retry_strategy = Retry(
+    total=3,  # number of retries
+    backoff_factor=1,  # wait 1, 2, 4 seconds between retries
+    status_forcelist=[500, 502, 503, 504, 404],  # HTTP status codes to retry on
+)
 lastroom_session = requests.Session()
 lastroom_session.verify = False  # Disable SSL verification for Lastroom API
+lastroom_session.mount("https://", HTTPAdapter(max_retries=retry_strategy))
+lastroom_session.mount("http://", HTTPAdapter(max_retries=retry_strategy))
 
 # Suppress only the single InsecureRequestWarning from urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -1270,34 +1280,52 @@ async def generate_lastroom(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             # First request to get the JavaScript code
             url = f"{LASTROOM_API_BASE}/?prompt={encoded_text}"
-            response = lastroom_session.get(url, timeout=30)
             
-            if response.status_code == 200:
-                # Get cookies from response
-                cookies = response.cookies
-                
-                # Make second request with cookies
-                url_with_i = f"{url}&i=1"
-                response = lastroom_session.get(url_with_i, cookies=cookies, timeout=30)
-                
-                if response.status_code == 200 and response.content:
-                    # Send the image
-                    await update.message.reply_photo(
-                        photo=response.content,
-                        caption=(
-                            f"🎨 İşte Lastroom AI ile oluşturduğum resim!\n\n"
-                            f"📝 Prompt: {user_text}"
-                        )
-                    )
-                else:
-                    raise Exception(f"HTTP {response.status_code}")
-            else:
-                raise Exception(f"HTTP {response.status_code}")
-                
+            max_retries = 3
+            retry_delay = 2  # seconds
+            
+            for attempt in range(max_retries):
+                try:
+                    response = lastroom_session.get(url, timeout=30)
+                    if response.status_code == 200:
+                        # Get cookies from response
+                        cookies = response.cookies
+                        
+                        # Make second request with cookies
+                        url_with_i = f"{url}&i=1"
+                        response = lastroom_session.get(url_with_i, cookies=cookies, timeout=30)
+                        
+                        if response.status_code == 200 and response.content:
+                            # Send the image
+                            await update.message.reply_photo(
+                                photo=response.content,
+                                caption=(
+                                    f"🎨 İşte Lastroom AI ile oluşturduğum resim!\n\n"
+                                    f"📝 Prompt: {user_text}"
+                                )
+                            )
+                            break
+                        else:
+                            raise Exception(f"HTTP {response.status_code}")
+                    else:
+                        raise Exception(f"HTTP {response.status_code}")
+                        
+                except (requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout) as e:
+                    if attempt == max_retries - 1:  # Last attempt
+                        raise
+                    logger.warning(f"Lastroom retry {attempt + 1}/{max_retries}: {str(e)}")
+                    time.sleep(retry_delay * (attempt + 1))  # Exponential backoff
+                    
         except requests.exceptions.SSLError as e:
             logger.error(f"Lastroom SSL error: {str(e)}")
             await update.message.reply_text(
                 "❌ SSL bağlantı hatası oluştu.\n"
+                "Lütfen daha sonra tekrar deneyin."
+            )
+        except (requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout) as e:
+            logger.error(f"Lastroom connection error: {str(e)}")
+            await update.message.reply_text(
+                "❌ Bağlantı zaman aşımına uğradı.\n"
                 "Lütfen daha sonra tekrar deneyin."
             )
         except requests.exceptions.RequestException as e:
