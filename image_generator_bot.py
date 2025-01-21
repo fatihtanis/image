@@ -57,6 +57,7 @@ MUSIC_API_BASE = "https://jiosaavn-api-codyandersan.vercel.app/search/all"
 WHOIS_API_BASE = "https://rdap.org/domain/"
 AUDD_API_URL = "https://api.audd.io/"
 TMDB_API_BASE = "https://api.themoviedb.org/3"
+GEMMA_API_BASE = "https://apilonic.netlify.app/api"
 
 # Film türleri
 MOVIE_GENRES = {
@@ -107,6 +108,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f'2. Müzik tanımak için: Ses kaydı veya müzik dosyası gönderin\n\n'
             f'📥 İndirme Komutları:\n'
             f'1. YouTube indirmek için: /yt [video linki]\n\n'
+            f'🤖 AI Sohbet:\n'
+            f'1. Gemma ile sohbet: /gemma [mesaj]\n\n'
             f'🛠️ Diğer Komutlar:\n'
             f'1. Domain sorgulamak için: /whois [domain.com]\n'
             f'2. İnternet hız testi: /speedtest\n\n'
@@ -116,7 +119,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f'• /similar Matrix 🎬\n'
             f'• /song Hadise Aşk Kaç Beden Giyer 🎵\n'
             f'• /whois google.com 🔍\n'
-            f'• /yt https://youtube.com/watch?v=... 📥\n\n'
+            f'• /yt https://youtube.com/watch?v=... 📥\n'
+            f'• /gemma merhaba nasılsın? 🤖\n\n'
             f'⚠️ Limitler:\n'
             f'• Dakikada {MAX_REQUESTS_PER_MINUTE} resim oluşturabilirsiniz\n'
             f'• Günlük {FLUX_DAILY_LIMIT} Flux resim hakkı\n'
@@ -1226,6 +1230,67 @@ async def similar_movies(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Similar movies error: {str(e)}")
         await update.message.reply_text("Bir hata oluştu. Lütfen tekrar deneyin.")
 
+async def gemma_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle Gemma AI chat command."""
+    try:
+        # Check if user provided text
+        if not context.args:
+            await update.message.reply_text(
+                "Lütfen bir mesaj girin.\n"
+                "Örnek: /gemma merhaba"
+            )
+            return
+        
+        # Get the text after the command
+        user_text = ' '.join(context.args)
+        
+        # Send a "processing" message
+        processing_message = await update.message.reply_text(
+            "💭 Gemma düşünüyor..."
+        )
+        
+        try:
+            # Make request to the Gemma API
+            params = {
+                'prompt': user_text
+            }
+            response = requests.get(GEMMA_API_BASE, params=params, timeout=30)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("success") and data.get("response"):
+                    # Send the response
+                    await update.message.reply_text(
+                        f"🤖 Gemma: {data['response']}"
+                    )
+                else:
+                    raise Exception("API yanıtı geçersiz")
+            else:
+                raise Exception(f"HTTP {response.status_code}")
+                
+        except requests.Timeout:
+            await update.message.reply_text(
+                "⏰ API yanıt vermedi, lütfen tekrar deneyin."
+            )
+        except requests.RequestException as e:
+            logger.error(f"Gemma API request error: {str(e)}")
+            await update.message.reply_text(
+                "🔌 Bağlantı hatası oluştu, lütfen tekrar deneyin."
+            )
+        except Exception as e:
+            logger.error(f"Gemma command error: {str(e)}")
+            await update.message.reply_text(
+                "❌ Bir hata oluştu.\n"
+                "Lütfen daha sonra tekrar deneyin."
+            )
+        
+        finally:
+            await processing_message.delete()
+            
+    except Exception as e:
+        logger.error(f"Gemma command error: {str(e)}")
+        await update.message.reply_text("Bir hata oluştu. Lütfen tekrar deneyin.")
+
 def main():
     """Start the bot."""
     try:
@@ -1244,6 +1309,7 @@ def main():
             CommandHandler("upscale", upscale_image),
             CommandHandler("genre", genre_movies),
             CommandHandler("similar", similar_movies),
+            CommandHandler("gemma", gemma_command),
             CallbackQueryHandler(youtube_button),
             MessageHandler(filters.VOICE | filters.AUDIO, recognize_music)
         ]
@@ -1256,7 +1322,7 @@ def main():
         logger.info("Bot configuration:")
         logger.info(f"- Maximum requests per minute: {MAX_REQUESTS_PER_MINUTE}")
         logger.info(f"- Maximum prompt length: {MAX_PROMPT_LENGTH}")
-        logger.info("- Available commands: start, dalle, flux, song, whois, yt, speedtest, upscale, genre, similar")
+        logger.info("- Available commands: start, dalle, flux, song, whois, yt, speedtest, upscale, genre, similar, gemma")
         logger.info("- Music recognition enabled: Yes")
         logger.info("Bot started successfully!")
 
